@@ -317,24 +317,30 @@ app.get('/api/messages/:conversationId', auth, (req, res) => {
 });
 
 app.post('/api/messages', auth, (req, res) => {
-  const { conversationId, content, type = 'text', mediaUrl } = req.body;
-  const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conversationId, req.user.id);
-  if (!member) return res.status(403).json({ error: 'Not a member' });
-  const conv = db.prepare('SELECT type FROM conversations WHERE id = ?').get(conversationId);
-  if (conv?.type === 'channel') {
-    const role = db.prepare('SELECT role FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conversationId, req.user.id);
-    if (role?.role !== 'admin') return res.status(403).json({ error: 'Только админы' });
+  try {
+    const { conversationId, content, type = 'text', mediaUrl } = req.body;
+    if (!conversationId) return res.status(400).json({ error: 'conversationId required' });
+    const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conversationId, req.user.id);
+    if (!member) return res.status(403).json({ error: 'Not a member' });
+    const conv = db.prepare('SELECT type FROM conversations WHERE id = ?').get(conversationId);
+    if (conv?.type === 'channel') {
+      const role = db.prepare('SELECT role FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conversationId, req.user.id);
+      if (role?.role !== 'admin') return res.status(403).json({ error: 'Только админы' });
+    }
+    const id = uuidv4();
+    db.prepare('INSERT INTO messages (id, conversation_id, sender_id, content, type, media_url) VALUES (?, ?, ?, ?, ?, ?)').run(id, conversationId, req.user.id, content, type, mediaUrl || null);
+    db.prepare('UPDATE conversations SET updated_at = datetime("now") WHERE id = ?').run(conversationId);
+    const message = db.prepare(`SELECT m.*, u.username as sender_username, u.display_name as sender_display_name, u.avatar as sender_avatar FROM messages m JOIN users u ON m.sender_id = u.id WHERE m.id = ?`).get(id);
+    const members = db.prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ?').all(conversationId);
+    members.forEach(({ user_id }) => {
+      const sockets = onlineUsers.get(user_id);
+      if (sockets) sockets.forEach(sid => io.to(sid).emit('message:new', message));
+    });
+    res.json({ message });
+  } catch (err) {
+    console.error('[API] POST /api/messages error:', err);
+    res.status(500).json({ error: err.message || 'Internal server error' });
   }
-  const id = uuidv4();
-  db.prepare('INSERT INTO messages (id, conversation_id, sender_id, content, type, media_url) VALUES (?, ?, ?, ?, ?, ?)').run(id, conversationId, req.user.id, content, type, mediaUrl || null);
-  db.prepare('UPDATE conversations SET updated_at = datetime("now") WHERE id = ?').run(conversationId);
-  const message = db.prepare(`SELECT m.*, u.username as sender_username, u.display_name as sender_display_name, u.avatar as sender_avatar FROM messages m JOIN users u ON m.sender_id = u.id WHERE m.id = ?`).get(id);
-  const members = db.prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ?').all(conversationId);
-  members.forEach(({ user_id }) => {
-    const sockets = onlineUsers.get(user_id);
-    if (sockets) sockets.forEach(sid => io.to(sid).emit('message:new', message));
-  });
-  res.json({ message });
 });
 
 // ── Stories (only from contacts) ──
@@ -457,5 +463,34 @@ io.on('connection', (socket) => {
   });
 });
 
+app.get('/api/health', (req, res) => {
+  try {
+    const count = db.prepare('SELECT COUNT(*) as c FROM users').get();
+    res.json({ ok: true, users: count.c, uptime: process.uptime() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/debug/test-msg', auth, (req, res) => {
+  try {
+    const conv = db.prepare('SELECT conversation_id FROM conversation_members WHERE user_id = ? LIMIT 1').get(req.user.id);
+    if (!conv) return res.json({ ok: false, error: 'no conversation' });
+    const id = uuidv4();
+    db.prepare('INSERT INTO messages (id, conversation_id, sender_id, content, type) VALUES (?, ?, ?, ?, ?)').run(id, conv.conversation_id, req.user.id, 'debug-test', 'text');
+    const msg = db.prepare('SELECT * FROM messages WHERE id = ?').get(id);
+    db.prepare('DELETE FROM messages WHERE id = ?').run(id);
+    res.json({ ok: true, msg });
+  } catch (err) {
+    res.json({ ok: false, error: err.message, stack: err.stack });
+  }
+});
+
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../dist/index.html')));
-server.listen(PORT, () => console.log(`GChat v3 on port ${PORT}`));
+
+app.use((err, req, res, _next) => {
+  console.error('[Express] Unhandled error:', err);
+  res.status(500).json({ error: err.message || 'Internal server error' });
+});
+
+server.listen(PORT, () => console.log(`GChat v3.3 on port ${PORT}`));
