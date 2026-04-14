@@ -36,7 +36,6 @@ export default function AuthPage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-white tracking-tight">gchat</h1>
-          <p className="text-slate-400 text-sm mt-2">Анонимный мессенджер</p>
         </div>
 
         <div className="bg-dark-800 rounded-2xl p-8 border border-dark-600 shadow-2xl">

@@ -34,4 +34,11 @@ input:-webkit-autofill:focus {
 @layer utilities {
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+  .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
 }
+
+.drawer-overlay { animation: fadeIn .2s ease; }
+.drawer-panel { animation: slideIn .25s ease; }
+@keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+@keyframes slideIn { from { transform: translateX(-100%) } to { transform: translateX(0) } }
