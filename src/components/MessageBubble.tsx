@@ -1,9 +1,7 @@
-import { useState, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import Avatar from './Avatar';
 import { Message } from '../types';
-import { format } from 'date-fns';
-import { Play, Pause } from 'lucide-react';
+import { format, parseISO } from 'date-fns';
 
 interface Props {
   message: Message;
@@ -12,64 +10,32 @@ interface Props {
   isGroup?: boolean;
 }
 
-export default function MessageBubble({ message: m, showAvatar, onImageClick, isGroup }: Props) {
+export default function MessageBubble({ message, showAvatar, onImageClick, isGroup }: Props) {
   const { user } = useAuth();
-  const mine = m.sender_id === user?.id;
-  const [playing, setPlaying] = useState(false);
-  const audioRef = useRef<HTMLAudioElement>(null);
-
-  const time = (() => { try { return format(new Date(m.created_at + 'Z'), 'HH:mm'); } catch { return ''; } })();
-
-  const toggleAudio = () => {
-    if (!audioRef.current) return;
-    playing ? audioRef.current.pause() : audioRef.current.play();
-    setPlaying(!playing);
-  };
-
-  const content = () => {
-    if (m.type === 'image') return (
-      <img src={m.media_url || ''} alt="" className="max-w-[280px] rounded-lg cursor-pointer hover:opacity-90 transition" onClick={() => onImageClick(m.media_url || '')} />
-    );
-    if (m.type === 'video') return (
-      <video src={m.media_url || ''} className="max-w-[280px] rounded-lg" controls playsInline />
-    );
-    if (m.type === 'audio') return (
-      <div className="flex items-center gap-3 min-w-[200px]">
-        <button onClick={toggleAudio} className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center flex-shrink-0 hover:bg-white/20 transition">
-          {playing ? <Pause size={18} /> : <Play size={18} className="ml-0.5" />}
-        </button>
-        <div className="flex-1">
-          <div className="h-1 bg-white/20 rounded-full overflow-hidden">
-            <div className="h-full bg-white/60 rounded-full transition-all" style={{ width: '0%' }} />
-          </div>
-          <audio
-            ref={audioRef} src={m.media_url || ''} onEnded={() => setPlaying(false)}
-            onTimeUpdate={e => {
-              const a = e.currentTarget;
-              const bar = a.parentElement?.querySelector('.bg-white\\/60') as HTMLElement;
-              if (bar && a.duration) bar.style.width = `${(a.currentTime / a.duration) * 100}%`;
-            }}
-          />
-        </div>
-      </div>
-    );
-    return <p className="text-sm whitespace-pre-wrap break-words">{m.content}</p>;
-  };
+  const isMine = message.sender_id === user?.id;
+  const time = (() => { try { return format(parseISO(message.created_at), 'HH:mm'); } catch { return ''; } })();
 
   return (
-    <div className={`flex gap-2 ${mine ? 'flex-row-reverse' : ''} ${showAvatar ? 'mt-3' : 'mt-0.5'}`}>
-      {!mine && (
+    <div className={`flex gap-2 ${isMine ? 'justify-end' : ''} ${showAvatar ? 'mt-3' : 'mt-0.5'}`}>
+      {!isMine && (
         <div className="w-8 flex-shrink-0">
-          {showAvatar && <Avatar src={m.sender_avatar} name={m.sender_display_name || m.sender_username} size={32} />}
+          {showAvatar && <Avatar src={message.sender_avatar} name={message.sender_display_name || message.sender_username} size={32} />}
         </div>
       )}
-      <div className={`max-w-[70%] flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
-        {showAvatar && !mine && <span className="text-xs text-accent-light mb-1 ml-1">{m.sender_display_name || m.sender_username}</span>}
-        <div className={`px-3 py-2 rounded-2xl ${m.type === 'image' || m.type === 'video' ? 'p-1' : ''} ${mine ? 'bg-accent text-white rounded-br-md' : 'bg-dark-700 text-slate-100 rounded-bl-md'}`}>
-          {content()}
-          <div className={`flex justify-end mt-1 ${m.type === 'image' || m.type === 'video' ? 'px-2 pb-1' : ''}`}>
-            <span className={`text-[10px] ${mine ? 'text-blue-200' : 'text-slate-500'}`}>{time}</span>
-          </div>
+      <div className={`max-w-[75%] min-w-[80px] ${isMine ? 'order-1' : ''}`}>
+        {showAvatar && !isMine && isGroup && <p className="text-xs text-accent mb-0.5 pl-1">{message.sender_display_name || message.sender_username}</p>}
+        <div className={`rounded-2xl px-3 py-2 ${isMine ? 'bg-accent text-white rounded-br-md' : 'bg-dark-700 text-slate-100 rounded-bl-md'}`}>
+          {message.type === 'image' && message.media_url && (
+            <img src={message.media_url} alt="" className="rounded-lg max-w-full max-h-64 object-cover mb-1 cursor-pointer" onClick={() => onImageClick(message.media_url!)} />
+          )}
+          {message.type === 'audio' && message.media_url && (
+            <audio src={message.media_url} controls className="max-w-full mb-1" />
+          )}
+          {message.type === 'video' && message.media_url && (
+            <video src={message.media_url} controls className="rounded-lg max-w-full max-h-64 mb-1" />
+          )}
+          {message.content && <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>}
+          <p className={`text-[10px] mt-0.5 text-right ${isMine ? 'text-white/50' : 'text-slate-500'}`}>{time}</p>
         </div>
       </div>
     </div>

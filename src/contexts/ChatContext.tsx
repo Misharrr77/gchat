@@ -3,6 +3,7 @@ import { api } from '../lib/api';
 import { connectSocket, disconnectSocket } from '../lib/socket';
 import { useAuth } from './AuthContext';
 import { Conversation, Message, StoryGroup } from '../types';
+import { playNotificationSound } from '../lib/sounds';
 
 interface Ctx {
   conversations: Conversation[];
@@ -21,12 +22,7 @@ interface Ctx {
 }
 
 const ChatContext = createContext<Ctx | null>(null);
-
-export function useChat() {
-  const c = useContext(ChatContext);
-  if (!c) throw new Error('useChat requires ChatProvider');
-  return c;
-}
+export function useChat() { const c = useContext(ChatContext); if (!c) throw new Error('useChat requires ChatProvider'); return c; }
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -39,30 +35,36 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [stories, setStories] = useState<StoryGroup[]>([]);
   const activeRef = useRef<Conversation | null>(null);
+  const userIdRef = useRef<string | null>(null);
 
   useEffect(() => { activeRef.current = active; }, [active]);
+  useEffect(() => { userIdRef.current = user?.id || null; }, [user?.id]);
 
   const refresh = useCallback(async () => {
-    try {
-      const d = await api.conversations.list();
-      setConversations(d.conversations);
-    } catch { /* ignore */ }
+    try { const d = await api.conversations.list(); setConversations(d.conversations); } catch {}
     setLoadingConvs(false);
   }, []);
 
   const refreshStories = useCallback(async () => {
-    try {
-      const d = await api.stories.list();
-      setStories(d.stories);
-    } catch { /* ignore */ }
+    try { const d = await api.stories.list(); setStories(d.stories); } catch {}
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) {
+      disconnectSocket();
+      setConversations([]); setMessages([]); setStories([]);
+      setLoadingConvs(true);
+      return;
+    }
     const token = localStorage.getItem('gchat_token');
     if (!token) return;
 
     const socket = connectSocket(token);
+    socket.removeAllListeners();
+
+    socket.on('connect', () => {
+      console.log('Socket connected:', socket.id);
+    });
 
     socket.on('message:new', (msg: Message) => {
       if (activeRef.current?.id === msg.conversation_id) {
@@ -74,10 +76,18 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           : c);
         return u.sort((a, b) => new Date(b.last_message_at || b.created_at).getTime() - new Date(a.last_message_at || a.created_at).getTime());
       });
+      if (msg.sender_id !== userIdRef.current) {
+        playNotificationSound();
+      }
     });
 
     socket.on('conversation:new', (conv: Conversation) => {
       setConversations(p => p.some(c => c.id === conv.id) ? p : [conv, ...p]);
+    });
+
+    socket.on('conversation:removed', ({ conversationId }: { conversationId: string }) => {
+      setConversations(p => p.filter(c => c.id !== conversationId));
+      if (activeRef.current?.id === conversationId) setActive(null);
     });
 
     socket.on('user:online', ({ userId, online }: { userId: string; online: boolean }) => {
@@ -95,12 +105,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       });
     });
 
-    socket.on('story:new', () => { refreshStories(); });
+    socket.on('story:new', () => refreshStories());
 
     refresh();
     refreshStories();
-    return () => { disconnectSocket(); };
-  }, [user, refresh, refreshStories]);
+
+    return () => {
+      // Don't disconnect socket on cleanup - only remove listeners
+      // Socket persists for reconnection. Disconnect only on logout (user becomes null).
+    };
+  }, [user?.id]); // Only re-run when user ID changes (login/logout), not on profile updates
 
   useEffect(() => {
     if (!active) { setMessages([]); return; }

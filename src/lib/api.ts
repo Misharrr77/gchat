@@ -36,20 +36,23 @@ export const api = {
   conversations: {
     list: (type?: string) => req(`/conversations${type ? `?type=${type}` : ''}`),
     create: (userId: string) => req('/conversations', { method: 'POST', body: JSON.stringify({ userId }) }),
-    createGroup: (body: { name: string; memberIds: string[]; avatar?: string; description?: string }) =>
+    createGroup: (body: { name: string; memberIds: string[]; avatar?: string; description?: string; isPublic?: boolean }) =>
       req('/conversations/group', { method: 'POST', body: JSON.stringify(body) }),
-    createChannel: (body: { name: string; avatar?: string; description?: string }) =>
+    createChannel: (body: { name: string; avatar?: string; description?: string; isPublic?: boolean }) =>
       req('/conversations/channel', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id: string, body: Record<string, any>) =>
+      req(`/conversations/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
     join: (id: string) => req(`/conversations/${id}/join`, { method: 'POST' }),
     addMembers: (id: string, userIds: string[]) =>
       req(`/conversations/${id}/members`, { method: 'POST', body: JSON.stringify({ userIds }) }),
+    setRole: (convId: string, userId: string, role: string) =>
+      req(`/conversations/${convId}/members/${userId}/role`, { method: 'PUT', body: JSON.stringify({ role }) }),
+    removeMember: (convId: string, userId: string) =>
+      req(`/conversations/${convId}/members/${userId}`, { method: 'DELETE' }),
   },
-  channels: {
-    search: (q: string) => req(`/channels/search?q=${encodeURIComponent(q)}`),
-  },
+  discover: (q: string) => req(`/discover?q=${encodeURIComponent(q)}`),
   messages: {
-    list: (cid: string, before?: string) =>
-      req(`/messages/${cid}${before ? `?before=${before}` : ''}`),
+    list: (cid: string, before?: string) => req(`/messages/${cid}${before ? `?before=${before}` : ''}`),
     send: (body: { conversationId: string; content: string; type?: string; mediaUrl?: string }) =>
       req('/messages', { method: 'POST', body: JSON.stringify(body) }),
   },
@@ -62,25 +65,19 @@ export const api = {
   },
   albums: {
     list: (userId: string) => req(`/albums/${userId}`),
-    add: (body: { url: string; caption?: string }) =>
-      req('/albums', { method: 'POST', body: JSON.stringify(body) }),
+    add: (body: { url: string; caption?: string }) => req('/albums', { method: 'POST', body: JSON.stringify(body) }),
     delete: (id: string) => req(`/albums/${id}`, { method: 'DELETE' }),
   },
   music: {
     list: (userId: string) => req(`/music/${userId}`),
-    add: (body: { title: string; artist?: string; url: string }) =>
-      req('/music', { method: 'POST', body: JSON.stringify(body) }),
+    add: (body: { title: string; artist?: string; url: string }) => req('/music', { method: 'POST', body: JSON.stringify(body) }),
     delete: (id: string) => req(`/music/${id}`, { method: 'DELETE' }),
   },
   upload: async (file: File) => {
     const t = token();
     const fd = new FormData();
     fd.append('file', file);
-    const res = await fetch(`${BASE}/upload`, {
-      method: 'POST',
-      headers: t ? { Authorization: `Bearer ${t}` } : {},
-      body: fd,
-    });
+    const res = await fetch(`${BASE}/upload`, { method: 'POST', headers: t ? { Authorization: `Bearer ${t}` } : {}, body: fd });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     return data;

@@ -2,219 +2,165 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
 import Avatar from './Avatar';
-import { X, Edit3, Camera, Calendar, Image as ImageIcon, Music, Play, Pause, Trash2, Plus, Loader } from 'lucide-react';
-import { format } from 'date-fns';
-import { ru } from 'date-fns/locale';
+import { X, Camera, Edit3, Plus, Trash2, ImagePlus, Music, User as UserIcon, Play, Pause, Upload } from 'lucide-react';
 import { User, AlbumPhoto, ProfileTrack } from '../types';
+import { format, parseISO } from 'date-fns';
 
-type ProfileTab = 'info' | 'album' | 'music';
+type Tab = 'profile' | 'album' | 'music';
 
-export default function ProfileModal({ user: pu, onClose }: { user: User; onClose: () => void }) {
+export default function ProfileModal({ userId, onClose }: { userId: string; onClose: () => void }) {
   const { user: me, updateUser } = useAuth();
-  const self = me?.id === pu.id;
-  const [tab, setTab] = useState<ProfileTab>('info');
+  const isMe = me?.id === userId;
+  const [profile, setProfile] = useState<User | null>(null);
+  const [tab, setTab] = useState<Tab>('profile');
   const [editing, setEditing] = useState(false);
-  const [dn, setDn] = useState(pu.display_name);
-  const [bio, setBio] = useState(pu.bio);
-  const [status, setStatus] = useState(pu.status);
+  const [name, setName] = useState('');
+  const [bio, setBio] = useState('');
+  const [status, setStatus] = useState('');
   const [saving, setSaving] = useState(false);
 
   const [photos, setPhotos] = useState<AlbumPhoto[]>([]);
-  const [loadingPhotos, setLoadingPhotos] = useState(false);
-  const [viewingPhoto, setViewingPhoto] = useState<string | null>(null);
-  const albumRef = useRef<HTMLInputElement>(null);
-
   const [tracks, setTracks] = useState<ProfileTrack[]>([]);
-  const [loadingTracks, setLoadingTracks] = useState(false);
+  const [previewImg, setPreviewImg] = useState<string | null>(null);
   const [playingTrack, setPlayingTrack] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const musicRef = useRef<HTMLInputElement>(null);
-  const [newTrackTitle, setNewTrackTitle] = useState('');
-
-  const loadAlbum = async () => {
-    setLoadingPhotos(true);
-    try { const d = await api.albums.list(pu.id); setPhotos(d.photos); } catch { /* ignore */ }
-    setLoadingPhotos(false);
-  };
-
-  const loadMusic = async () => {
-    setLoadingTracks(true);
-    try { const d = await api.music.list(pu.id); setTracks(d.tracks); } catch { /* ignore */ }
-    setLoadingTracks(false);
-  };
 
   useEffect(() => {
-    if (tab === 'album') loadAlbum();
-    if (tab === 'music') loadMusic();
-  }, [tab, pu.id]);
+    api.users.get(userId).then(d => { setProfile(d.user); setName(d.user.display_name); setBio(d.user.bio || ''); setStatus(d.user.status || ''); });
+    api.albums.list(userId).then(d => setPhotos(d.photos));
+    api.music.list(userId).then(d => setTracks(d.tracks));
+  }, [userId]);
 
-  const save = async () => {
+  const saveProfile = async () => {
     setSaving(true);
     try {
-      const d = await api.users.updateProfile({ displayName: dn, bio, status });
-      updateUser(d.user);
-      setEditing(false);
-    } catch { /* ignore */ }
-    setSaving(false);
+      const d = await api.users.updateProfile({ displayName: name, bio, status });
+      setProfile(d.user); updateUser(d.user);
+    } catch {}
+    setSaving(false); setEditing(false);
   };
 
   const uploadAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
+    const f = e.target.files?.[0]; if (!f) return;
+    const isVideo = f.type.startsWith('video/');
     try {
       const d = await api.upload(f);
-      if (f.type.startsWith('video')) {
-        const r = await api.users.updateProfile({ videoAvatar: d.url });
-        updateUser(r.user);
-      } else {
-        const r = await api.users.updateProfile({ avatar: d.url, videoAvatar: '' });
-        updateUser(r.user);
-      }
-    } catch { /* ignore */ }
+      const update = isVideo ? { videoAvatar: d.url, avatar: undefined } : { avatar: d.url, videoAvatar: undefined };
+      const r = await api.users.updateProfile(update);
+      setProfile(r.user); updateUser(r.user);
+    } catch {}
   };
 
   const uploadHeader = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    try {
-      const d = await api.upload(f);
-      const r = await api.users.updateProfile({ profileHeader: d.url });
-      updateUser(r.user);
-    } catch { /* ignore */ }
+    const f = e.target.files?.[0]; if (!f) return;
+    try { const d = await api.upload(f); const r = await api.users.updateProfile({ profileHeader: d.url }); setProfile(r.user); updateUser(r.user); } catch {}
   };
 
   const addPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    try { const d = await api.upload(f); await api.albums.add({ url: d.url }); loadAlbum(); } catch { /* ignore */ }
-    e.target.value = '';
-  };
-
-  const deletePhoto = async (id: string) => {
-    try { await api.albums.delete(id); setPhotos(p => p.filter(ph => ph.id !== id)); } catch { /* ignore */ }
-  };
-
-  const addTrack = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    const title = newTrackTitle || f.name.replace(/\.[^.]+$/, '');
-    try { const d = await api.upload(f); await api.music.add({ title, url: d.url }); loadMusic(); setNewTrackTitle(''); } catch { /* ignore */ }
-    e.target.value = '';
-  };
-
-  const deleteTrack = async (id: string) => {
-    try { await api.music.delete(id); setTracks(p => p.filter(t => t.id !== id)); } catch { /* ignore */ }
-  };
-
-  const togglePlay = (track: ProfileTrack) => {
-    if (playingTrack === track.id) {
-      audioRef.current?.pause();
-      setPlayingTrack(null);
-    } else {
-      if (audioRef.current) { audioRef.current.src = track.url; audioRef.current.play(); }
-      setPlayingTrack(track.id);
+    const files = Array.from(e.target.files || []);
+    for (const f of files) {
+      try { const d = await api.upload(f); const r = await api.albums.add({ url: d.url }); setPhotos(p => [r.photo, ...p]); } catch {}
     }
   };
 
-  const joined = (() => { try { return format(new Date(pu.created_at + 'Z'), 'LLLL yyyy', { locale: ru }); } catch { return ''; } })();
+  const deletePhoto = async (id: string) => {
+    try { await api.albums.delete(id); setPhotos(p => p.filter(x => x.id !== id)); } catch {}
+  };
+
+  const addMusic = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]; if (!f) return;
+    const title = f.name.replace(/\.[^/.]+$/, '');
+    try { const d = await api.upload(f); const r = await api.music.add({ title, url: d.url }); setTracks(p => [r.track, ...p]); } catch {}
+  };
+
+  const deleteTrack = async (id: string) => {
+    if (playingTrack === id) { audioRef.current?.pause(); setPlayingTrack(null); }
+    try { await api.music.delete(id); setTracks(p => p.filter(x => x.id !== id)); } catch {}
+  };
+
+  const togglePlay = (t: ProfileTrack) => {
+    if (playingTrack === t.id) { audioRef.current?.pause(); setPlayingTrack(null); return; }
+    setPlayingTrack(t.id);
+    if (audioRef.current) { audioRef.current.src = t.url; audioRef.current.play(); }
+  };
+
+  if (!profile) return null;
+  const joined = (() => { try { return format(parseISO(profile.created_at), 'dd.MM.yyyy'); } catch { return ''; } })();
+
+  const tabClass = (t: Tab) => tab === t
+    ? 'flex-1 py-2.5 text-xs font-semibold text-accent border-b-2 border-accent'
+    : 'flex-1 py-2.5 text-xs text-slate-400 hover:text-white border-b-2 border-transparent';
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="w-full max-w-md bg-dark-800 rounded-2xl border border-dark-600 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="h-28 relative flex-shrink-0" style={{
-          background: pu.profile_header ? `url(${pu.profile_header}) center/cover` : 'linear-gradient(135deg, rgba(59,130,246,0.4), rgba(30,58,138,0.4))'
-        }}>
+        <div className="h-28 relative flex-shrink-0" style={profile.profile_header ? { background: `url(${profile.profile_header}) center/cover` } : { background: 'linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%)' }}>
           <button onClick={onClose} className="absolute top-3 right-3 p-1.5 bg-dark-900/50 hover:bg-dark-900/80 rounded-lg text-white transition"><X size={16} /></button>
-          {self && (
-            <label className="absolute top-3 left-3 p-1.5 bg-dark-900/50 hover:bg-dark-900/80 rounded-lg text-white transition cursor-pointer">
-              <ImageIcon size={14} />
-              <input type="file" className="hidden" accept="image/*" onChange={uploadHeader} />
-            </label>
-          )}
+          {isMe && <label className="absolute top-3 left-3 p-1.5 bg-dark-900/50 hover:bg-dark-900/80 rounded-lg text-white transition cursor-pointer"><Camera size={14} /><input type="file" className="hidden" accept="image/*" onChange={uploadHeader} /></label>}
         </div>
 
-        <div className="px-6 -mt-12 relative flex-shrink-0">
-          <div className="relative inline-block">
-            <Avatar src={pu.avatar} videoSrc={pu.video_avatar} name={pu.display_name || pu.username} size={80} />
-            {self && (
-              <label className="absolute bottom-0 right-0 p-1.5 bg-accent rounded-full cursor-pointer hover:bg-accent-hover transition" title="Фото/видео аватар">
-                <Camera size={12} className="text-white" />
-                <input type="file" className="hidden" accept="image/*,video/mp4,video/webm" onChange={uploadAvatar} />
-              </label>
-            )}
+        <div className="px-6 -mt-10 flex items-end gap-4 flex-shrink-0">
+          <div className="relative flex-shrink-0">
+            <Avatar src={profile.avatar} videoSrc={profile.video_avatar} name={profile.display_name} size={72} />
+            {isMe && <label className="absolute bottom-0 right-0 p-1.5 bg-accent rounded-full cursor-pointer hover:bg-accent-hover transition"><Camera size={10} className="text-white" /><input type="file" className="hidden" accept="image/*,video/mp4,video/webm" onChange={uploadAvatar} /></label>}
           </div>
+          <div className="pb-1 min-w-0 flex-1">
+            <h3 className="text-lg font-bold text-white truncate">{profile.display_name}</h3>
+            <p className="text-xs text-slate-400">@{profile.username}</p>
+          </div>
+          {isMe && !editing && <button onClick={() => setEditing(true)} className="p-2 hover:bg-dark-700 rounded-lg text-slate-400 hover:text-white transition mb-1"><Edit3 size={16} /></button>}
         </div>
 
-        <div className="flex border-b border-dark-600 mt-2 flex-shrink-0">
-          {(['info', 'album', 'music'] as ProfileTab[]).map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className={`flex-1 py-2.5 text-xs font-medium transition ${tab === t ? 'text-accent border-b-2 border-accent' : 'text-slate-400 hover:text-white'}`}>
-              {t === 'info' ? 'Профиль' : t === 'album' ? 'Альбом' : 'Музыка'}
-            </button>
-          ))}
+        <div className="flex border-b border-dark-600 mt-3 flex-shrink-0">
+          <button onClick={() => setTab('profile')} className={tabClass('profile')}><UserIcon size={14} className="inline mr-1" />Профиль</button>
+          <button onClick={() => setTab('album')} className={tabClass('album')}><ImagePlus size={14} className="inline mr-1" />Альбом</button>
+          <button onClick={() => setTab('music')} className={tabClass('music')}><Music size={14} className="inline mr-1" />Музыка</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 pt-3">
-          {tab === 'info' && (
-            editing ? (
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs text-slate-400 mb-1 block">Имя</label>
-                  <input value={dn} onChange={e => setDn(e.target.value)} className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-white focus:outline-none focus:border-accent transition" />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 mb-1 block">Статус</label>
-                  <input value={status} onChange={e => setStatus(e.target.value)} className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-white focus:outline-none focus:border-accent transition" />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 mb-1 block">О себе</label>
-                  <textarea value={bio} onChange={e => setBio(e.target.value)} rows={3} className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-white focus:outline-none focus:border-accent transition resize-none" />
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={save} disabled={saving} className="flex-1 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition disabled:opacity-50">
-                    {saving ? 'Сохраняю...' : 'Сохранить'}
-                  </button>
-                  <button onClick={() => setEditing(false)} className="flex-1 py-2 bg-dark-700 hover:bg-dark-600 text-white text-sm rounded-lg transition">Отмена</button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center justify-between mb-1">
-                  <h3 className="text-lg font-bold text-white">{pu.display_name || pu.username}</h3>
-                  {self && <button onClick={() => setEditing(true)} className="p-2 hover:bg-dark-700 rounded-lg text-slate-400 hover:text-white transition"><Edit3 size={16} /></button>}
-                </div>
-                <p className="text-sm text-accent mb-3">@{pu.username}</p>
-                {pu.status && <p className="text-sm text-slate-300 mb-2">{pu.status}</p>}
-                {pu.bio && <p className="text-sm text-slate-400 mb-3">{pu.bio}</p>}
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <Calendar size={12} />
-                  <span>В gchat с {joined}</span>
-                </div>
-              </>
-            )
+        <div className="flex-1 overflow-y-auto">
+          {tab === 'profile' && (
+            <div className="p-6 space-y-4">
+              {editing ? (
+                <>
+                  <div><label className="text-xs text-slate-400 mb-1 block">Имя</label><input value={name} onChange={e => setName(e.target.value)} className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-white focus:outline-none focus:border-accent" /></div>
+                  <div><label className="text-xs text-slate-400 mb-1 block">Статус</label><input value={status} onChange={e => setStatus(e.target.value)} className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-white focus:outline-none focus:border-accent" maxLength={60} /></div>
+                  <div><label className="text-xs text-slate-400 mb-1 block">О себе</label><textarea value={bio} onChange={e => setBio(e.target.value)} rows={3} className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-white focus:outline-none focus:border-accent resize-none" /></div>
+                  <div className="flex gap-2"><button onClick={saveProfile} disabled={saving} className="flex-1 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition disabled:opacity-50">{saving ? '...' : 'Сохранить'}</button><button onClick={() => setEditing(false)} className="flex-1 py-2 bg-dark-700 text-white text-sm rounded-lg">Отмена</button></div>
+                </>
+              ) : (
+                <>
+                  {profile.status && <div className="p-3 bg-dark-700/50 rounded-xl"><p className="text-sm text-slate-300">{profile.status}</p></div>}
+                  {profile.bio && <div><label className="text-xs text-slate-500 mb-1 block">О себе</label><p className="text-sm text-slate-300">{profile.bio}</p></div>}
+                  <div className="flex items-center gap-4 text-xs text-slate-500">
+                    <span>В gchat с {joined}</span>
+                    <span className={`flex items-center gap-1 ${profile.is_online ? 'text-green-400' : ''}`}><span className={`w-1.5 h-1.5 rounded-full ${profile.is_online ? 'bg-green-400' : 'bg-slate-600'}`} />{profile.is_online ? 'в сети' : 'не в сети'}</span>
+                  </div>
+                  <div className="pt-2 flex items-center justify-between text-sm text-slate-400">
+                    <span>Альбом: {photos.length} фото</span>
+                    <span>Музыка: {tracks.length} трек(ов)</span>
+                  </div>
+                </>
+              )}
+            </div>
           )}
 
           {tab === 'album' && (
-            <div>
-              {self && (
-                <button onClick={() => albumRef.current?.click()} className="w-full py-2.5 mb-3 border border-dashed border-dark-600 rounded-xl text-sm text-slate-400 hover:text-accent hover:border-accent transition flex items-center justify-center gap-2">
-                  <Plus size={16} /> Добавить фото
-                </button>
+            <div className="p-4">
+              {isMe && (
+                <label className="flex items-center justify-center gap-2 mb-4 p-3 border-2 border-dashed border-dark-600 rounded-xl text-sm text-slate-400 hover:border-accent hover:text-accent transition cursor-pointer">
+                  <Upload size={16} />Добавить фото
+                  <input type="file" className="hidden" accept="image/*" multiple onChange={addPhoto} />
+                </label>
               )}
-              <input type="file" ref={albumRef} className="hidden" accept="image/*" onChange={addPhoto} />
-              {loadingPhotos ? (
-                <div className="flex justify-center py-8"><Loader size={20} className="animate-spin text-accent" /></div>
-              ) : photos.length === 0 ? (
-                <p className="text-center text-slate-500 text-sm py-8">Нет фотографий</p>
+              {photos.length === 0 ? (
+                <p className="text-center text-slate-500 text-sm py-8">Нет фото</p>
               ) : (
                 <div className="grid grid-cols-3 gap-1.5">
                   {photos.map(p => (
-                    <div key={p.id} className="relative group aspect-square">
-                      <img src={p.url} alt="" className="w-full h-full object-cover rounded-lg cursor-pointer" onClick={() => setViewingPhoto(p.url)} />
-                      {self && (
-                        <button onClick={() => deletePhoto(p.id)} className="absolute top-1 right-1 p-1 bg-black/60 rounded-full opacity-0 group-hover:opacity-100 transition text-red-400">
-                          <Trash2 size={12} />
-                        </button>
+                    <div key={p.id} className="relative group aspect-square rounded-lg overflow-hidden cursor-pointer" onClick={() => setPreviewImg(p.url)}>
+                      <img src={p.url} alt="" className="w-full h-full object-cover" />
+                      {isMe && (
+                        <button onClick={e => { e.stopPropagation(); deletePhoto(p.id); }} className="absolute top-1 right-1 p-1 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition text-white hover:text-red-400"><Trash2 size={12} /></button>
                       )}
                     </div>
                   ))}
@@ -224,26 +170,19 @@ export default function ProfileModal({ user: pu, onClose }: { user: User; onClos
           )}
 
           {tab === 'music' && (
-            <div>
-              {self && (
-                <div className="mb-3 space-y-2">
-                  <input value={newTrackTitle} onChange={e => setNewTrackTitle(e.target.value)} placeholder="Название трека"
-                    className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent transition" />
-                  <button onClick={() => musicRef.current?.click()} className="w-full py-2.5 border border-dashed border-dark-600 rounded-xl text-sm text-slate-400 hover:text-accent hover:border-accent transition flex items-center justify-center gap-2">
-                    <Music size={16} /> Добавить трек
-                  </button>
-                </div>
+            <div className="p-4">
+              {isMe && (
+                <label className="flex items-center justify-center gap-2 mb-4 p-3 border-2 border-dashed border-dark-600 rounded-xl text-sm text-slate-400 hover:border-accent hover:text-accent transition cursor-pointer">
+                  <Upload size={16} />Добавить музыку
+                  <input type="file" className="hidden" accept="audio/*" onChange={addMusic} />
+                </label>
               )}
-              <input type="file" ref={musicRef} className="hidden" accept="audio/*" onChange={addTrack} />
-              <audio ref={audioRef} onEnded={() => setPlayingTrack(null)} />
-              {loadingTracks ? (
-                <div className="flex justify-center py-8"><Loader size={20} className="animate-spin text-accent" /></div>
-              ) : tracks.length === 0 ? (
-                <p className="text-center text-slate-500 text-sm py-8">Нет треков</p>
+              {tracks.length === 0 ? (
+                <p className="text-center text-slate-500 text-sm py-8">Нет музыки</p>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-1">
                   {tracks.map(t => (
-                    <div key={t.id} className="flex items-center gap-3 p-3 bg-dark-700 rounded-xl">
+                    <div key={t.id} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-dark-700/50 transition group">
                       <button onClick={() => togglePlay(t)} className="w-9 h-9 bg-accent/20 rounded-full flex items-center justify-center flex-shrink-0 hover:bg-accent/30 transition">
                         {playingTrack === t.id ? <Pause size={16} className="text-accent" /> : <Play size={16} className="text-accent ml-0.5" />}
                       </button>
@@ -251,22 +190,19 @@ export default function ProfileModal({ user: pu, onClose }: { user: User; onClos
                         <p className="text-sm text-white truncate">{t.title}</p>
                         {t.artist && <p className="text-xs text-slate-400 truncate">{t.artist}</p>}
                       </div>
-                      {self && (
-                        <button onClick={() => deleteTrack(t.id)} className="p-1.5 hover:bg-dark-600 rounded-lg text-slate-400 hover:text-red-400 transition">
-                          <Trash2 size={14} />
-                        </button>
-                      )}
+                      {isMe && <button onClick={() => deleteTrack(t.id)} className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition"><Trash2 size={14} /></button>}
                     </div>
                   ))}
                 </div>
               )}
+              <audio ref={audioRef} onEnded={() => setPlayingTrack(null)} className="hidden" />
             </div>
           )}
         </div>
 
-        {viewingPhoto && (
-          <div className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4 cursor-pointer" onClick={() => setViewingPhoto(null)}>
-            <img src={viewingPhoto} alt="" className="max-w-full max-h-full object-contain rounded-lg" />
+        {previewImg && (
+          <div className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4 cursor-pointer" onClick={() => setPreviewImg(null)}>
+            <img src={previewImg} alt="" className="max-w-full max-h-full object-contain rounded-lg" />
           </div>
         )}
       </div>

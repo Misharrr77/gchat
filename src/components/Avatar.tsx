@@ -1,43 +1,22 @@
-interface Props {
-  src: string | null | undefined;
-  videoSrc?: string | null | undefined;
-  name: string;
-  size?: number;
-  online?: boolean;
-}
-
-const palette = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4', '#6366f1'];
-
-function isVideo(url: string): boolean {
-  return /\.(mp4|webm|ogg|mov)$/i.test(url);
-}
+interface Props { src?: string | null; videoSrc?: string | null; name: string; size?: number; online?: boolean; }
 
 export default function Avatar({ src, videoSrc, name, size = 40, online }: Props) {
-  const initials = name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || '?';
-  const ci = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % palette.length;
-
-  const vid = videoSrc || (src && isVideo(src) ? src : null);
-  const img = vid ? null : src;
+  const s = { width: size, height: size };
+  const initials = name.slice(0, 2).toUpperCase();
+  const colors = ['bg-blue-600', 'bg-purple-600', 'bg-pink-600', 'bg-teal-600', 'bg-indigo-600', 'bg-cyan-600'];
+  const bg = colors[name.charCodeAt(0) % colors.length];
 
   return (
-    <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
-      {vid ? (
-        <video
-          src={vid}
-          className="rounded-full object-cover"
-          style={{ width: size, height: size }}
-          autoPlay loop muted playsInline
-        />
-      ) : img ? (
-        <img src={img} alt={name} className="rounded-full object-cover" style={{ width: size, height: size }} />
+    <div className="relative flex-shrink-0" style={s}>
+      {videoSrc ? (
+        <video src={videoSrc} autoPlay loop muted playsInline className="rounded-full object-cover" style={s} />
+      ) : src ? (
+        <img src={src} alt={name} className="rounded-full object-cover" style={s} />
       ) : (
-        <div
-          className="rounded-full flex items-center justify-center text-white font-semibold"
-          style={{ width: size, height: size, backgroundColor: palette[ci], fontSize: size * 0.35 }}
-        >{initials}</div>
+        <div className={`${bg} rounded-full flex items-center justify-center text-white font-bold`} style={{ ...s, fontSize: size * 0.35 }}>{initials}</div>
       )}
       {online !== undefined && (
-        <div className={`absolute -bottom-0.5 -right-0.5 rounded-full border-2 border-dark-800 ${online ? 'bg-green-500' : 'bg-slate-500'}`} style={{ width: size * 0.3, height: size * 0.3 }} />
+        <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-dark-800 ${online ? 'bg-green-400' : 'bg-slate-600'}`} />
       )}
     </div>
   );

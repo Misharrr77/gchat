@@ -1,101 +1,86 @@
-import { useState, useRef, FormEvent } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useChat } from '../contexts/ChatContext';
 import { api } from '../lib/api';
 import { getSocket } from '../lib/socket';
-import { Send, Image, Music, Video, X, Loader } from 'lucide-react';
+import { Send, Paperclip, Image, Music, Video, X } from 'lucide-react';
 
 export default function MessageInput() {
   const { active, sendMessage } = useChat();
   const [text, setText] = useState('');
-  const [uploading, setUploading] = useState(false);
-  const [preview, setPreview] = useState<{ type: string; url: string; file: File } | null>(null);
+  const [sending, setSending] = useState(false);
+  const [preview, setPreview] = useState<{ file: File; type: string; url: string } | null>(null);
+  const [showAttach, setShowAttach] = useState(false);
   const imgRef = useRef<HTMLInputElement>(null);
-  const audRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLInputElement>(null);
   const vidRef = useRef<HTMLInputElement>(null);
-  const typingRef = useRef<ReturnType<typeof setTimeout>>();
+  const typingTimer = useRef<NodeJS.Timeout>();
 
-  const emitTyping = () => {
+  const handleTyping = useCallback(() => {
     if (!active) return;
     const s = getSocket();
     if (!s) return;
-    if (typingRef.current) clearTimeout(typingRef.current);
-    s.emit('typing', { conversationId: active.id });
-    typingRef.current = setTimeout(() => {}, 3000);
+    if (!typingTimer.current) {
+      s.emit('typing', { conversationId: active.id });
+    }
+    clearTimeout(typingTimer.current);
+    typingTimer.current = setTimeout(() => { typingTimer.current = undefined; }, 2000);
+  }, [active?.id]);
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>, type: string) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setPreview({ file: f, type, url: URL.createObjectURL(f) });
+    setShowAttach(false);
   };
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if ((!text.trim() && !preview) || !active) return;
+  const submit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!active || (!text.trim() && !preview) || sending) return;
+    setSending(true);
     try {
       if (preview) {
-        setUploading(true);
         const d = await api.upload(preview.file);
-        const msgType = preview.type.startsWith('audio') ? 'audio' : preview.type.startsWith('video') ? 'video' : 'image';
-        await sendMessage(text.trim() || '', msgType, d.url);
+        await sendMessage(text.trim() || '', preview.type, d.url);
+        URL.revokeObjectURL(preview.url);
         setPreview(null);
       } else {
         await sendMessage(text.trim());
       }
       setText('');
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const pickFile = (e: React.ChangeEvent<HTMLInputElement>, type: string) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    setPreview({ type: f.type || type, url: URL.createObjectURL(f), file: f });
-    e.target.value = '';
+    } catch (err) { console.error(err); }
+    setSending(false);
   };
 
   return (
-    <div className="border-t border-dark-600 bg-dark-800">
+    <div className="border-t border-dark-600 bg-dark-800 flex-shrink-0">
       {preview && (
         <div className="px-4 pt-3 flex items-center gap-3">
-          {preview.type.startsWith('image')
-            ? <img src={preview.url} alt="" className="w-20 h-20 rounded-lg object-cover" />
-            : preview.type.startsWith('video')
-            ? <video src={preview.url} className="w-20 h-20 rounded-lg object-cover" />
-            : <div className="flex items-center gap-2 px-3 py-2 bg-dark-700 rounded-lg"><Music size={16} className="text-accent" /><span className="text-sm text-slate-300 truncate max-w-[200px]">{preview.file.name}</span></div>
-          }
-          <button onClick={() => setPreview(null)} className="p-1 hover:bg-dark-700 rounded-lg text-slate-400"><X size={16} /></button>
+          <div className="relative">
+            {preview.type === 'image' && <img src={preview.url} className="w-16 h-16 object-cover rounded-lg" />}
+            {preview.type === 'audio' && <div className="w-16 h-16 bg-dark-700 rounded-lg flex items-center justify-center"><Music size={20} className="text-accent" /></div>}
+            {preview.type === 'video' && <video src={preview.url} className="w-16 h-16 object-cover rounded-lg" />}
+            <button onClick={() => { URL.revokeObjectURL(preview.url); setPreview(null); }} className="absolute -top-1.5 -right-1.5 p-0.5 bg-dark-600 rounded-full text-white hover:text-red-400"><X size={12} /></button>
+          </div>
+          <p className="text-xs text-slate-400 truncate">{preview.file.name}</p>
         </div>
       )}
-
-      <form onSubmit={submit} className="flex items-end gap-2 p-3">
-        <div className="flex gap-1">
-          <button type="button" onClick={() => imgRef.current?.click()} className="p-2.5 hover:bg-dark-700 rounded-xl text-slate-400 hover:text-accent transition" title="Фото">
-            <Image size={20} />
-          </button>
-          <button type="button" onClick={() => vidRef.current?.click()} className="p-2.5 hover:bg-dark-700 rounded-xl text-slate-400 hover:text-accent transition" title="Видео">
-            <Video size={20} />
-          </button>
-          <button type="button" onClick={() => audRef.current?.click()} className="p-2.5 hover:bg-dark-700 rounded-xl text-slate-400 hover:text-accent transition" title="Аудио">
-            <Music size={20} />
-          </button>
+      <form onSubmit={submit} className="flex items-center gap-2 px-3 py-2.5">
+        <div className="relative">
+          <button type="button" onClick={() => setShowAttach(!showAttach)} className="p-2 hover:bg-dark-700 rounded-lg text-slate-400 hover:text-white transition"><Paperclip size={18} /></button>
+          {showAttach && (
+            <div className="absolute bottom-12 left-0 bg-dark-700 border border-dark-600 rounded-xl shadow-xl p-1.5 flex flex-col gap-0.5 min-w-[140px] z-10">
+              <button type="button" onClick={() => imgRef.current?.click()} className="flex items-center gap-2 px-3 py-2 hover:bg-dark-600 rounded-lg text-sm text-white transition"><Image size={16} className="text-accent" />Фото</button>
+              <button type="button" onClick={() => audioRef.current?.click()} className="flex items-center gap-2 px-3 py-2 hover:bg-dark-600 rounded-lg text-sm text-white transition"><Music size={16} className="text-accent" />Аудио</button>
+              <button type="button" onClick={() => vidRef.current?.click()} className="flex items-center gap-2 px-3 py-2 hover:bg-dark-600 rounded-lg text-sm text-white transition"><Video size={16} className="text-accent" />Видео</button>
+            </div>
+          )}
         </div>
-        <input type="file" ref={imgRef} className="hidden" accept="image/*" onChange={e => pickFile(e, 'image')} />
-        <input type="file" ref={vidRef} className="hidden" accept="video/*" onChange={e => pickFile(e, 'video')} />
-        <input type="file" ref={audRef} className="hidden" accept="audio/*" onChange={e => pickFile(e, 'audio')} />
-
-        <div className="flex-1">
-          <textarea
-            value={text}
-            onChange={e => { setText(e.target.value); emitTyping(); }}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(e); } }}
-            onInput={e => { const t = e.currentTarget; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 120) + 'px'; }}
-            placeholder="Написать сообщение..."
-            rows={1}
-            className="w-full px-4 py-2.5 bg-dark-700 border border-dark-600 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent/50 resize-none transition"
-            style={{ minHeight: 42 }}
-          />
-        </div>
-
-        <button type="submit" disabled={(!text.trim() && !preview) || uploading} className="p-2.5 bg-accent hover:bg-accent-hover rounded-xl text-white transition disabled:opacity-30 disabled:cursor-not-allowed flex-shrink-0">
-          {uploading ? <Loader size={20} className="animate-spin" /> : <Send size={20} />}
+        <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={e => handleFile(e, 'image')} />
+        <input ref={audioRef} type="file" accept="audio/*" className="hidden" onChange={e => handleFile(e, 'audio')} />
+        <input ref={vidRef} type="file" accept="video/*" className="hidden" onChange={e => handleFile(e, 'video')} />
+        <input value={text} onChange={e => { setText(e.target.value); handleTyping(); }} placeholder="Сообщение..." className="flex-1 px-4 py-2 bg-dark-700 border border-dark-600 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent transition" />
+        <button type="submit" disabled={(!text.trim() && !preview) || sending} className="p-2 bg-accent hover:bg-accent-hover rounded-xl text-white transition disabled:opacity-30 disabled:cursor-not-allowed">
+          <Send size={18} />
         </button>
       </form>
     </div>
