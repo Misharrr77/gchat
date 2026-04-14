@@ -329,7 +329,7 @@ app.post('/api/messages', auth, (req, res) => {
     }
     const id = uuidv4();
     db.prepare('INSERT INTO messages (id, conversation_id, sender_id, content, type, media_url) VALUES (?, ?, ?, ?, ?, ?)').run(id, conversationId, req.user.id, content, type, mediaUrl || null);
-    db.prepare('UPDATE conversations SET updated_at = datetime("now") WHERE id = ?').run(conversationId);
+    db.prepare(`UPDATE conversations SET updated_at = datetime('now') WHERE id = ?`).run(conversationId);
     const message = db.prepare(`SELECT m.*, u.username as sender_username, u.display_name as sender_display_name, u.avatar as sender_avatar FROM messages m JOIN users u ON m.sender_id = u.id WHERE m.id = ?`).get(id);
     const members = db.prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ?').all(conversationId);
     members.forEach(({ user_id }) => {
@@ -456,7 +456,7 @@ io.on('connection', (socket) => {
       set.delete(socket.id);
       if (set.size === 0) {
         onlineUsers.delete(uid);
-        db.prepare('UPDATE users SET is_online = 0, last_seen = datetime("now") WHERE id = ?').run(uid);
+        db.prepare(`UPDATE users SET is_online = 0, last_seen = datetime('now') WHERE id = ?`).run(uid);
         io.emit('user:online', { userId: uid, online: false });
       }
     }
