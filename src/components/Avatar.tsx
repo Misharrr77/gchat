@@ -1,5 +1,6 @@
 interface Props {
   src: string | null | undefined;
+  videoSrc?: string | null | undefined;
   name: string;
   size?: number;
   online?: boolean;
@@ -7,14 +8,28 @@ interface Props {
 
 const palette = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4', '#6366f1'];
 
-export default function Avatar({ src, name, size = 40, online }: Props) {
+function isVideo(url: string): boolean {
+  return /\.(mp4|webm|ogg|mov)$/i.test(url);
+}
+
+export default function Avatar({ src, videoSrc, name, size = 40, online }: Props) {
   const initials = name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || '?';
   const ci = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % palette.length;
 
+  const vid = videoSrc || (src && isVideo(src) ? src : null);
+  const img = vid ? null : src;
+
   return (
     <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
-      {src ? (
-        <img src={src} alt={name} className="rounded-full object-cover" style={{ width: size, height: size }} />
+      {vid ? (
+        <video
+          src={vid}
+          className="rounded-full object-cover"
+          style={{ width: size, height: size }}
+          autoPlay loop muted playsInline
+        />
+      ) : img ? (
+        <img src={img} alt={name} className="rounded-full object-cover" style={{ width: size, height: size }} />
       ) : (
         <div
           className="rounded-full flex items-center justify-center text-white font-semibold"

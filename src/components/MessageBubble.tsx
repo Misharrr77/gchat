@@ -9,9 +9,10 @@ interface Props {
   message: Message;
   showAvatar: boolean;
   onImageClick: (url: string) => void;
+  isGroup?: boolean;
 }
 
-export default function MessageBubble({ message: m, showAvatar, onImageClick }: Props) {
+export default function MessageBubble({ message: m, showAvatar, onImageClick, isGroup }: Props) {
   const { user } = useAuth();
   const mine = m.sender_id === user?.id;
   const [playing, setPlaying] = useState(false);
@@ -28,6 +29,9 @@ export default function MessageBubble({ message: m, showAvatar, onImageClick }: 
   const content = () => {
     if (m.type === 'image') return (
       <img src={m.media_url || ''} alt="" className="max-w-[280px] rounded-lg cursor-pointer hover:opacity-90 transition" onClick={() => onImageClick(m.media_url || '')} />
+    );
+    if (m.type === 'video') return (
+      <video src={m.media_url || ''} className="max-w-[280px] rounded-lg" controls playsInline />
     );
     if (m.type === 'audio') return (
       <div className="flex items-center gap-3 min-w-[200px]">
@@ -61,9 +65,9 @@ export default function MessageBubble({ message: m, showAvatar, onImageClick }: 
       )}
       <div className={`max-w-[70%] flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
         {showAvatar && !mine && <span className="text-xs text-accent-light mb-1 ml-1">{m.sender_display_name || m.sender_username}</span>}
-        <div className={`px-3 py-2 rounded-2xl ${m.type === 'image' ? 'p-1' : ''} ${mine ? 'bg-accent text-white rounded-br-md' : 'bg-dark-700 text-slate-100 rounded-bl-md'}`}>
+        <div className={`px-3 py-2 rounded-2xl ${m.type === 'image' || m.type === 'video' ? 'p-1' : ''} ${mine ? 'bg-accent text-white rounded-br-md' : 'bg-dark-700 text-slate-100 rounded-bl-md'}`}>
           {content()}
-          <div className={`flex justify-end mt-1 ${m.type === 'image' ? 'px-2 pb-1' : ''}`}>
+          <div className={`flex justify-end mt-1 ${m.type === 'image' || m.type === 'video' ? 'px-2 pb-1' : ''}`}>
             <span className={`text-[10px] ${mine ? 'text-blue-200' : 'text-slate-500'}`}>{time}</span>
           </div>
         </div>

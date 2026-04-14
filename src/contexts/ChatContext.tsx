@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode,
 import { api } from '../lib/api';
 import { connectSocket, disconnectSocket } from '../lib/socket';
 import { useAuth } from './AuthContext';
-import { Conversation, Message } from '../types';
+import { Conversation, Message, StoryGroup } from '../types';
 
 interface Ctx {
   conversations: Conversation[];
@@ -12,10 +12,12 @@ interface Ctx {
   loadingMsgs: boolean;
   typingUsers: Map<string, Set<string>>;
   onlineUsers: Set<string>;
+  stories: StoryGroup[];
   setActive: (c: Conversation | null) => void;
   sendMessage: (content: string, type?: string, mediaUrl?: string) => Promise<void>;
   startConversation: (userId: string) => Promise<Conversation>;
   refresh: () => Promise<void>;
+  refreshStories: () => Promise<void>;
 }
 
 const ChatContext = createContext<Ctx | null>(null);
@@ -35,6 +37,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [typingUsers, setTypingUsers] = useState<Map<string, Set<string>>>(new Map());
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
+  const [stories, setStories] = useState<StoryGroup[]>([]);
   const activeRef = useRef<Conversation | null>(null);
 
   useEffect(() => { activeRef.current = active; }, [active]);
@@ -45,6 +48,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setConversations(d.conversations);
     } catch { /* ignore */ }
     setLoadingConvs(false);
+  }, []);
+
+  const refreshStories = useCallback(async () => {
+    try {
+      const d = await api.stories.list();
+      setStories(d.stories);
+    } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
@@ -85,9 +95,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       });
     });
 
+    socket.on('story:new', () => { refreshStories(); });
+
     refresh();
+    refreshStories();
     return () => { disconnectSocket(); };
-  }, [user, refresh]);
+  }, [user, refresh, refreshStories]);
 
   useEffect(() => {
     if (!active) { setMessages([]); return; }
@@ -97,7 +110,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const sendMessage = useCallback(async (content: string, type = 'text', mediaUrl?: string) => {
     if (!activeRef.current) return;
-    await api.messages.send({ conversationId: activeRef.current.id, content, type, mediaUrl });
+    const { message } = await api.messages.send({ conversationId: activeRef.current.id, content, type, mediaUrl });
+    setMessages(p => p.some(m => m.id === message.id) ? p : [...p, message]);
   }, []);
 
   const startConversation = useCallback(async (userId: string) => {
@@ -107,7 +121,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <ChatContext.Provider value={{ conversations, active, messages, loadingConvs, loadingMsgs, typingUsers, onlineUsers, setActive, sendMessage, startConversation, refresh }}>
+    <ChatContext.Provider value={{ conversations, active, messages, loadingConvs, loadingMsgs, typingUsers, onlineUsers, stories, setActive, sendMessage, startConversation, refresh, refreshStories }}>
       {children}
     </ChatContext.Provider>
   );

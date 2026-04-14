@@ -26,7 +26,7 @@ export default function ChatPage() {
               <div className="w-20 h-20 bg-dark-700 rounded-full flex items-center justify-center mx-auto mb-4">
                 <MessageCircle className="w-10 h-10 text-slate-500" />
               </div>
-              <h2 className="text-xl font-semibold text-slate-300 mb-2">Добро пожаловать в GChat</h2>
+              <h2 className="text-xl font-semibold text-slate-300 mb-2">gchat</h2>
               <p className="text-slate-500">Выберите чат или начните новый</p>
             </div>
           </div>

@@ -6,7 +6,7 @@ interface Ctx {
   user: User | null;
   loading: boolean;
   login: (login: string, password: string) => Promise<void>;
-  register: (username: string, email: string, password: string, displayName: string) => Promise<void>;
+  register: (username: string, password: string, displayName?: string) => Promise<void>;
   logout: () => void;
   updateUser: (u: User) => void;
 }
@@ -41,8 +41,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(d.user);
   }, []);
 
-  const register = useCallback(async (username: string, email: string, password: string, displayName: string) => {
-    const d = await api.auth.register({ username, email, password, displayName });
+  const register = useCallback(async (username: string, password: string, displayName?: string) => {
+    const d = await api.auth.register({ username, password, displayName });
     localStorage.setItem('gchat_token', d.token);
     setUser(d.user);
   }, []);

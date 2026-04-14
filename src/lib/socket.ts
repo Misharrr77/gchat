@@ -8,7 +8,14 @@ export function getSocket(): Socket | null {
 
 export function connectSocket(token: string): Socket {
   if (socket?.connected) return socket;
-  socket = io({ auth: { token }, reconnection: true, reconnectionDelay: 1000 });
+  if (socket) { socket.disconnect(); socket = null; }
+  socket = io({
+    auth: { token },
+    reconnection: true,
+    reconnectionDelay: 1000,
+    reconnectionAttempts: Infinity,
+    transports: ['websocket', 'polling'],
+  });
   return socket;
 }
 

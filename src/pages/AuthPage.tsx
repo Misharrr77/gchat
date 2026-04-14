@@ -1,6 +1,6 @@
 import { useState, FormEvent } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { MessageCircle, Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
 
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
@@ -10,7 +10,6 @@ export default function AuthPage() {
   const { login, register } = useAuth();
 
   const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
 
@@ -22,8 +21,8 @@ export default function AuthPage() {
       if (isLogin) {
         await login(username, password);
       } else {
-        if (!username || !email || !password) throw new Error('Заполните все поля');
-        await register(username, email, password, displayName || username);
+        if (!username || !password) throw new Error('Заполните все поля');
+        await register(username, password, displayName || undefined);
       }
     } catch (err: any) {
       setError(err.message);
@@ -36,13 +35,8 @@ export default function AuthPage() {
     <div className="min-h-screen flex items-center justify-center bg-dark-900 p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-3 mb-2">
-            <div className="w-12 h-12 bg-accent rounded-2xl flex items-center justify-center">
-              <MessageCircle className="w-7 h-7 text-white" />
-            </div>
-            <h1 className="text-3xl font-bold text-white">GChat</h1>
-          </div>
-          <p className="text-slate-400 text-sm">Общайся мгновенно, безопасно</p>
+          <h1 className="text-4xl font-bold text-white tracking-tight">gchat</h1>
+          <p className="text-slate-400 text-sm mt-2">Анонимный мессенджер</p>
         </div>
 
         <div className="bg-dark-800 rounded-2xl p-8 border border-dark-600 shadow-2xl">
@@ -63,35 +57,23 @@ export default function AuthPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">
-                {isLogin ? 'Имя пользователя или email' : 'Имя пользователя'}
-              </label>
+              <label className="block text-sm font-medium text-slate-300 mb-1.5">Имя пользователя</label>
               <input
                 type="text" value={username} onChange={e => setUsername(e.target.value)}
                 className="w-full px-4 py-3 bg-dark-700 border border-dark-600 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition"
-                placeholder={isLogin ? 'Введите логин или email' : 'Придумайте логин'} required
+                placeholder={isLogin ? 'Введите логин' : 'Придумайте логин (латиница)'} required
               />
             </div>
 
             {!isLogin && (
-              <>
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1.5">Отображаемое имя</label>
-                  <input
-                    type="text" value={displayName} onChange={e => setDisplayName(e.target.value)}
-                    className="w-full px-4 py-3 bg-dark-700 border border-dark-600 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition"
-                    placeholder="Как вас называть?"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1.5">Email</label>
-                  <input
-                    type="email" value={email} onChange={e => setEmail(e.target.value)}
-                    className="w-full px-4 py-3 bg-dark-700 border border-dark-600 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition"
-                    placeholder="you@mail.com" required
-                  />
-                </div>
-              </>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1.5">Отображаемое имя</label>
+                <input
+                  type="text" value={displayName} onChange={e => setDisplayName(e.target.value)}
+                  className="w-full px-4 py-3 bg-dark-700 border border-dark-600 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition"
+                  placeholder="Как вас называть?"
+                />
+              </div>
             )}
 
             <div>
@@ -115,7 +97,7 @@ export default function AuthPage() {
               {loading ? (
                 <span className="inline-flex items-center gap-2">
                   <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  {isLogin ? 'Вхожу...' : 'Создаю аккаунт...'}
+                  {isLogin ? 'Вхожу...' : 'Создаю...'}
                 </span>
               ) : isLogin ? 'Войти' : 'Создать аккаунт'}
             </button>

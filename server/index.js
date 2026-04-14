@@ -6,54 +6,80 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const db = require('./db');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' }, maxHttpBufferSize: 10e6 });
+const io = new Server(server, { cors: { origin: '*' }, maxHttpBufferSize: 50e6 });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'gchat-prod-secret-key-2024';
 const PORT = process.env.PORT || 3000;
 
+app.disable('x-powered-by');
+app.set('trust proxy', false);
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  delete req.headers['x-forwarded-for'];
+  delete req.headers['x-real-ip'];
+  next();
+});
+
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+
+const uploadsDir = path.join(__dirname, '../data/uploads');
+fs.mkdirSync(uploadsDir, { recursive: true });
+app.use('/uploads', express.static(uploadsDir, { maxAge: '7d' }));
 app.use(express.static(path.join(__dirname, '../dist')));
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const storage = multer.diskStorage({
+  destination: (r, f, cb) => cb(null, uploadsDir),
+  filename: (r, f, cb) => cb(null, uuidv4() + path.extname(f.originalname))
+});
+const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
 
 const onlineUsers = new Map();
+const UF = 'id, username, display_name, avatar, video_avatar, profile_header, bio, status, is_online, last_seen, created_at';
 
 function auth(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
-  try {
-    req.user = jwt.verify(token, JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ error: 'Invalid token' });
-  }
+  try { req.user = jwt.verify(token, JWT_SECRET); next(); }
+  catch { res.status(401).json({ error: 'Invalid token' }); }
 }
 
 // ── Auth ──
 
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { username, email, password, displayName } = req.body;
-    if (!username || !email || !password) return res.status(400).json({ error: 'All fields required' });
-    if (username.length < 3) return res.status(400).json({ error: 'Username must be at least 3 characters' });
-    if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    const { username, password, displayName } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Введите логин и пароль' });
+    if (username.length < 3) return res.status(400).json({ error: 'Минимум 3 символа' });
+    if (password.length < 6) return res.status(400).json({ error: 'Пароль минимум 6 символов' });
+    if (!/^[a-zA-Z0-9_]+$/.test(username)) return res.status(400).json({ error: 'Только латиница, цифры и _' });
 
-    const existing = db.prepare('SELECT id FROM users WHERE username = ? OR email = ?').get(username.toLowerCase(), email.toLowerCase());
-    if (existing) return res.status(400).json({ error: 'Username or email already taken' });
+    const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username.toLowerCase());
+    if (existing) return res.status(400).json({ error: 'Имя уже занято' });
 
     const hash = await bcrypt.hash(password, 10);
     const id = uuidv4();
-    db.prepare('INSERT INTO users (id, username, email, password_hash, display_name) VALUES (?, ?, ?, ?, ?)')
-      .run(id, username.toLowerCase(), email.toLowerCase(), hash, displayName || username);
+    const email = `${username.toLowerCase()}@gchat.local`;
+
+    try {
+      db.prepare('INSERT INTO users (id, username, email, password_hash, display_name) VALUES (?, ?, ?, ?, ?)')
+        .run(id, username.toLowerCase(), email, hash, displayName || username);
+    } catch {
+      db.prepare('INSERT INTO users (id, username, password_hash, display_name) VALUES (?, ?, ?, ?)')
+        .run(id, username.toLowerCase(), hash, displayName || username);
+    }
 
     const token = jwt.sign({ id, username: username.toLowerCase() }, JWT_SECRET, { expiresIn: '30d' });
-    const user = db.prepare('SELECT id, username, email, display_name, avatar, bio, status, created_at FROM users WHERE id = ?').get(id);
+    const user = db.prepare(`SELECT ${UF} FROM users WHERE id = ?`).get(id);
     res.json({ token, user });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -63,14 +89,13 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { login, password } = req.body;
-    const user = db.prepare('SELECT * FROM users WHERE username = ? OR email = ?').get(login.toLowerCase(), login.toLowerCase());
-    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-
+    if (!login || !password) return res.status(400).json({ error: 'Введите данные' });
+    const user = db.prepare('SELECT * FROM users WHERE username = ?').get(login.toLowerCase());
+    if (!user) return res.status(401).json({ error: 'Неверные данные' });
     const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
-
+    if (!valid) return res.status(401).json({ error: 'Неверные данные' });
     const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '30d' });
-    const { password_hash, ...safe } = user;
+    const safe = db.prepare(`SELECT ${UF} FROM users WHERE id = ?`).get(user.id);
     res.json({ token, user: safe });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -78,8 +103,8 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.get('/api/auth/me', auth, (req, res) => {
-  const user = db.prepare('SELECT id, username, email, display_name, avatar, bio, status, created_at FROM users WHERE id = ?').get(req.user.id);
-  if (!user) return res.status(404).json({ error: 'User not found' });
+  const user = db.prepare(`SELECT ${UF} FROM users WHERE id = ?`).get(req.user.id);
+  if (!user) return res.status(404).json({ error: 'Not found' });
   res.json({ user });
 });
 
@@ -89,33 +114,30 @@ app.get('/api/users/search', auth, (req, res) => {
   const q = req.query.q;
   if (!q) return res.json({ users: [] });
   const users = db.prepare(
-    `SELECT id, username, display_name, avatar, bio, status, is_online, last_seen
-     FROM users WHERE (username LIKE ? OR display_name LIKE ?) AND id != ? LIMIT 20`
+    `SELECT ${UF} FROM users WHERE (username LIKE ? OR display_name LIKE ?) AND id != ? LIMIT 20`
   ).all(`%${q}%`, `%${q}%`, req.user.id);
   res.json({ users });
 });
 
 app.get('/api/users/:id', auth, (req, res) => {
-  const user = db.prepare(
-    'SELECT id, username, display_name, avatar, bio, status, is_online, last_seen, created_at FROM users WHERE id = ?'
-  ).get(req.params.id);
-  if (!user) return res.status(404).json({ error: 'User not found' });
+  const user = db.prepare(`SELECT ${UF} FROM users WHERE id = ?`).get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'Not found' });
   res.json({ user });
 });
 
 app.put('/api/users/profile', auth, (req, res) => {
-  const { displayName, bio, status, avatar } = req.body;
-  const sets = [];
-  const vals = [];
+  const { displayName, bio, status, avatar, videoAvatar, profileHeader } = req.body;
+  const sets = [], vals = [];
   if (displayName !== undefined) { sets.push('display_name = ?'); vals.push(displayName); }
   if (bio !== undefined) { sets.push('bio = ?'); vals.push(bio); }
   if (status !== undefined) { sets.push('status = ?'); vals.push(status); }
   if (avatar !== undefined) { sets.push('avatar = ?'); vals.push(avatar); }
-  if (sets.length === 0) return res.status(400).json({ error: 'Nothing to update' });
-
+  if (videoAvatar !== undefined) { sets.push('video_avatar = ?'); vals.push(videoAvatar); }
+  if (profileHeader !== undefined) { sets.push('profile_header = ?'); vals.push(profileHeader); }
+  if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
   vals.push(req.user.id);
   db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
-  const user = db.prepare('SELECT id, username, email, display_name, avatar, bio, status, created_at FROM users WHERE id = ?').get(req.user.id);
+  const user = db.prepare(`SELECT ${UF} FROM users WHERE id = ?`).get(req.user.id);
   res.json({ user });
 });
 
@@ -123,32 +145,32 @@ app.put('/api/users/profile', auth, (req, res) => {
 
 app.post('/api/upload', auth, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file' });
-  const base64 = req.file.buffer.toString('base64');
-  const dataUri = `data:${req.file.mimetype};base64,${base64}`;
-  res.json({ url: dataUri });
+  res.json({ url: `/uploads/${req.file.filename}` });
 });
 
 // ── Conversations ──
 
 function enrichConversation(conv, userId) {
   const members = db.prepare(
-    `SELECT u.id, u.username, u.display_name, u.avatar, u.is_online, u.last_seen
+    `SELECT u.id, u.username, u.display_name, u.avatar, u.video_avatar, u.is_online, u.last_seen, cm.role
      FROM conversation_members cm JOIN users u ON cm.user_id = u.id WHERE cm.conversation_id = ?`
   ).all(conv.id);
-
   if (conv.type === 'direct') {
     const other = members.find(m => m.id !== userId);
-    if (other) {
-      conv.name = other.display_name || other.username;
-      conv.avatar = other.avatar;
-      conv.otherUser = other;
-    }
+    if (other) { conv.name = other.display_name || other.username; conv.avatar = other.avatar; conv.otherUser = other; }
   }
   conv.members = members;
+  conv.member_count = members.length;
   return conv;
 }
 
 app.get('/api/conversations', auth, (req, res) => {
+  const { type } = req.query;
+  let tw = '';
+  if (type === 'group') tw = "AND c.type = 'group'";
+  else if (type === 'channel') tw = "AND c.type = 'channel'";
+  else if (type === 'direct') tw = "AND c.type = 'direct'";
+
   const rows = db.prepare(`
     SELECT c.*,
       (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message,
@@ -157,50 +179,118 @@ app.get('/api/conversations', auth, (req, res) => {
       (SELECT sender_id FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_sender_id
     FROM conversations c
     JOIN conversation_members cm ON c.id = cm.conversation_id
-    WHERE cm.user_id = ?
+    WHERE cm.user_id = ? ${tw}
     ORDER BY COALESCE(
       (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1),
       c.created_at
     ) DESC
   `).all(req.user.id);
-
   res.json({ conversations: rows.map(c => enrichConversation(c, req.user.id)) });
 });
 
 app.post('/api/conversations', auth, (req, res) => {
-  const { userId, type = 'direct' } = req.body;
-  if (type !== 'direct') return res.status(400).json({ error: 'Only direct chats supported' });
+  const { userId } = req.body;
   if (userId === req.user.id) return res.status(400).json({ error: 'Cannot chat with yourself' });
-
   const existing = db.prepare(`
     SELECT c.id FROM conversations c
     JOIN conversation_members cm1 ON c.id = cm1.conversation_id AND cm1.user_id = ?
     JOIN conversation_members cm2 ON c.id = cm2.conversation_id AND cm2.user_id = ?
     WHERE c.type = 'direct'
   `).get(req.user.id, userId);
-
   if (existing) {
     const conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(existing.id);
     return res.json({ conversation: enrichConversation(conv, req.user.id) });
   }
-
   const id = uuidv4();
-  const insert = db.transaction(() => {
-    db.prepare('INSERT INTO conversations (id, type) VALUES (?, ?)').run(id, 'direct');
-    db.prepare('INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?)').run(id, req.user.id);
-    db.prepare('INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?)').run(id, userId);
-  });
-  insert();
-
+  db.transaction(() => {
+    db.prepare('INSERT INTO conversations (id, type, creator_id) VALUES (?, ?, ?)').run(id, 'direct', req.user.id);
+    db.prepare('INSERT INTO conversation_members (conversation_id, user_id, role) VALUES (?, ?, ?)').run(id, req.user.id, 'member');
+    db.prepare('INSERT INTO conversation_members (conversation_id, user_id, role) VALUES (?, ?, ?)').run(id, userId, 'member');
+  })();
   const conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(id);
   const enriched = enrichConversation(conv, req.user.id);
-
   const otherSockets = onlineUsers.get(userId);
   if (otherSockets) {
-    const otherView = enrichConversation({ ...conv }, userId);
+    const otherView = enrichConversation({ ...db.prepare('SELECT * FROM conversations WHERE id = ?').get(id) }, userId);
     otherSockets.forEach(sid => io.to(sid).emit('conversation:new', otherView));
   }
+  res.json({ conversation: enriched });
+});
 
+app.post('/api/conversations/group', auth, (req, res) => {
+  const { name, memberIds = [], avatar, description } = req.body;
+  if (!name) return res.status(400).json({ error: 'Название обязательно' });
+  const id = uuidv4();
+  const all = [req.user.id, ...memberIds.filter(m => m !== req.user.id)];
+  db.transaction(() => {
+    db.prepare('INSERT INTO conversations (id, type, name, avatar, description, creator_id) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, 'group', name, avatar || null, description || '', req.user.id);
+    for (const uid of all) {
+      db.prepare('INSERT INTO conversation_members (conversation_id, user_id, role) VALUES (?, ?, ?)')
+        .run(id, uid, uid === req.user.id ? 'admin' : 'member');
+    }
+  })();
+  const conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(id);
+  const enriched = enrichConversation(conv, req.user.id);
+  all.forEach(uid => {
+    if (uid !== req.user.id) {
+      const socks = onlineUsers.get(uid);
+      if (socks) {
+        const v = enrichConversation({ ...db.prepare('SELECT * FROM conversations WHERE id = ?').get(id) }, uid);
+        socks.forEach(sid => io.to(sid).emit('conversation:new', v));
+      }
+    }
+  });
+  res.json({ conversation: enriched });
+});
+
+app.post('/api/conversations/channel', auth, (req, res) => {
+  const { name, avatar, description } = req.body;
+  if (!name) return res.status(400).json({ error: 'Название обязательно' });
+  const id = uuidv4();
+  db.transaction(() => {
+    db.prepare('INSERT INTO conversations (id, type, name, avatar, description, creator_id) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, 'channel', name, avatar || null, description || '', req.user.id);
+    db.prepare('INSERT INTO conversation_members (conversation_id, user_id, role) VALUES (?, ?, ?)').run(id, req.user.id, 'admin');
+  })();
+  const conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(id);
+  res.json({ conversation: enrichConversation(conv, req.user.id) });
+});
+
+app.post('/api/conversations/:id/join', auth, (req, res) => {
+  const conv = db.prepare("SELECT * FROM conversations WHERE id = ? AND type = 'channel'").get(req.params.id);
+  if (!conv) return res.status(404).json({ error: 'Канал не найден' });
+  const exists = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conv.id, req.user.id);
+  if (!exists) db.prepare('INSERT INTO conversation_members (conversation_id, user_id, role) VALUES (?, ?, ?)').run(conv.id, req.user.id, 'member');
+  res.json({ conversation: enrichConversation(conv, req.user.id) });
+});
+
+app.get('/api/channels/search', auth, (req, res) => {
+  const q = req.query.q || '';
+  const channels = db.prepare(
+    `SELECT c.*, (SELECT COUNT(*) FROM conversation_members WHERE conversation_id = c.id) as member_count
+     FROM conversations c WHERE c.type = 'channel' AND c.name LIKE ? LIMIT 20`
+  ).all(`%${q}%`);
+  res.json({ channels });
+});
+
+app.post('/api/conversations/:id/members', auth, (req, res) => {
+  const { userIds } = req.body;
+  const conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(req.params.id);
+  if (!conv || conv.type === 'direct') return res.status(400).json({ error: 'Нельзя' });
+  db.transaction(() => {
+    for (const uid of userIds) {
+      try { db.prepare('INSERT INTO conversation_members (conversation_id, user_id, role) VALUES (?, ?, ?)').run(conv.id, uid, 'member'); } catch {}
+    }
+  })();
+  const enriched = enrichConversation(db.prepare('SELECT * FROM conversations WHERE id = ?').get(conv.id), req.user.id);
+  userIds.forEach(uid => {
+    const socks = onlineUsers.get(uid);
+    if (socks) {
+      const v = enrichConversation({ ...db.prepare('SELECT * FROM conversations WHERE id = ?').get(conv.id) }, uid);
+      socks.forEach(sid => io.to(sid).emit('conversation:new', v));
+    }
+  });
   res.json({ conversation: enriched });
 });
 
@@ -209,45 +299,125 @@ app.post('/api/conversations', auth, (req, res) => {
 app.get('/api/messages/:conversationId', auth, (req, res) => {
   const { conversationId } = req.params;
   const { limit = 50, before } = req.query;
-
   const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conversationId, req.user.id);
   if (!member) return res.status(403).json({ error: 'Not a member' });
-
-  const query = before
+  const q = before
     ? `SELECT m.*, u.username as sender_username, u.display_name as sender_display_name, u.avatar as sender_avatar
        FROM messages m JOIN users u ON m.sender_id = u.id
        WHERE m.conversation_id = ? AND m.created_at < ? ORDER BY m.created_at DESC LIMIT ?`
     : `SELECT m.*, u.username as sender_username, u.display_name as sender_display_name, u.avatar as sender_avatar
        FROM messages m JOIN users u ON m.sender_id = u.id
        WHERE m.conversation_id = ? ORDER BY m.created_at DESC LIMIT ?`;
-
-  const params = before ? [conversationId, before, +limit] : [conversationId, +limit];
-  res.json({ messages: db.prepare(query).all(...params).reverse() });
+  const p = before ? [conversationId, before, +limit] : [conversationId, +limit];
+  res.json({ messages: db.prepare(q).all(...p).reverse() });
 });
 
 app.post('/api/messages', auth, (req, res) => {
   const { conversationId, content, type = 'text', mediaUrl } = req.body;
-
   const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conversationId, req.user.id);
   if (!member) return res.status(403).json({ error: 'Not a member' });
-
+  const conv = db.prepare('SELECT type FROM conversations WHERE id = ?').get(conversationId);
+  if (conv?.type === 'channel') {
+    const role = db.prepare('SELECT role FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conversationId, req.user.id);
+    if (role?.role !== 'admin') return res.status(403).json({ error: 'Только админы могут писать в канал' });
+  }
   const id = uuidv4();
   db.prepare('INSERT INTO messages (id, conversation_id, sender_id, content, type, media_url) VALUES (?, ?, ?, ?, ?, ?)')
     .run(id, conversationId, req.user.id, content, type, mediaUrl || null);
   db.prepare('UPDATE conversations SET updated_at = datetime("now") WHERE id = ?').run(conversationId);
-
   const message = db.prepare(
     `SELECT m.*, u.username as sender_username, u.display_name as sender_display_name, u.avatar as sender_avatar
      FROM messages m JOIN users u ON m.sender_id = u.id WHERE m.id = ?`
   ).get(id);
-
   const members = db.prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ?').all(conversationId);
   members.forEach(({ user_id }) => {
     const sockets = onlineUsers.get(user_id);
     if (sockets) sockets.forEach(sid => io.to(sid).emit('message:new', message));
   });
-
   res.json({ message });
+});
+
+// ── Stories ──
+
+app.get('/api/stories', auth, (req, res) => {
+  const stories = db.prepare(`
+    SELECT s.*, u.username, u.display_name, u.avatar, u.video_avatar,
+      (SELECT COUNT(*) FROM story_views sv WHERE sv.story_id = s.id) as view_count,
+      (SELECT 1 FROM story_views sv WHERE sv.story_id = s.id AND sv.user_id = ?) as viewed
+    FROM stories s JOIN users u ON s.user_id = u.id
+    WHERE s.expires_at > datetime('now')
+    ORDER BY s.created_at DESC
+  `).all(req.user.id);
+  const grouped = {};
+  stories.forEach(s => {
+    if (!grouped[s.user_id]) {
+      grouped[s.user_id] = {
+        user_id: s.user_id, username: s.username, display_name: s.display_name,
+        avatar: s.avatar, video_avatar: s.video_avatar, stories: [], has_unviewed: false
+      };
+    }
+    grouped[s.user_id].stories.push(s);
+    if (!s.viewed) grouped[s.user_id].has_unviewed = true;
+  });
+  res.json({ stories: Object.values(grouped) });
+});
+
+app.post('/api/stories', auth, (req, res) => {
+  const { type = 'image', mediaUrl, textContent, bgColor } = req.body;
+  const id = uuidv4();
+  db.prepare('INSERT INTO stories (id, user_id, type, media_url, text_content, bg_color) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, req.user.id, type, mediaUrl || null, textContent || null, bgColor || '#3b82f6');
+  const story = db.prepare('SELECT * FROM stories WHERE id = ?').get(id);
+  io.emit('story:new', { userId: req.user.id });
+  res.json({ story });
+});
+
+app.post('/api/stories/:id/view', auth, (req, res) => {
+  try { db.prepare('INSERT OR IGNORE INTO story_views (story_id, user_id) VALUES (?, ?)').run(req.params.id, req.user.id); } catch {}
+  res.json({ ok: true });
+});
+
+app.delete('/api/stories/:id', auth, (req, res) => {
+  db.prepare('DELETE FROM stories WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id);
+  res.json({ ok: true });
+});
+
+// ── Albums ──
+
+app.get('/api/albums/:userId', auth, (req, res) => {
+  res.json({ photos: db.prepare('SELECT * FROM albums WHERE user_id = ? ORDER BY created_at DESC').all(req.params.userId) });
+});
+
+app.post('/api/albums', auth, (req, res) => {
+  const { url, caption } = req.body;
+  if (!url) return res.status(400).json({ error: 'URL required' });
+  const id = uuidv4();
+  db.prepare('INSERT INTO albums (id, user_id, url, caption) VALUES (?, ?, ?, ?)').run(id, req.user.id, url, caption || '');
+  res.json({ photo: db.prepare('SELECT * FROM albums WHERE id = ?').get(id) });
+});
+
+app.delete('/api/albums/:id', auth, (req, res) => {
+  db.prepare('DELETE FROM albums WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id);
+  res.json({ ok: true });
+});
+
+// ── Profile Music ──
+
+app.get('/api/music/:userId', auth, (req, res) => {
+  res.json({ tracks: db.prepare('SELECT * FROM profile_music WHERE user_id = ? ORDER BY created_at DESC').all(req.params.userId) });
+});
+
+app.post('/api/music', auth, (req, res) => {
+  const { title, artist, url } = req.body;
+  if (!title || !url) return res.status(400).json({ error: 'Нужны название и файл' });
+  const id = uuidv4();
+  db.prepare('INSERT INTO profile_music (id, user_id, title, artist, url) VALUES (?, ?, ?, ?, ?)').run(id, req.user.id, title, artist || '', url);
+  res.json({ track: db.prepare('SELECT * FROM profile_music WHERE id = ?').get(id) });
+});
+
+app.delete('/api/music/:id', auth, (req, res) => {
+  db.prepare('DELETE FROM profile_music WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id);
+  res.json({ ok: true });
 });
 
 // ── Socket.IO ──
@@ -255,19 +425,14 @@ app.post('/api/messages', auth, (req, res) => {
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
   if (!token) return next(new Error('Unauthorized'));
-  try {
-    socket.user = jwt.verify(token, JWT_SECRET);
-    next();
-  } catch {
-    next(new Error('Invalid token'));
-  }
+  try { socket.user = jwt.verify(token, JWT_SECRET); next(); }
+  catch { next(new Error('Invalid token')); }
 });
 
 io.on('connection', (socket) => {
   const uid = socket.user.id;
   if (!onlineUsers.has(uid)) onlineUsers.set(uid, new Set());
   onlineUsers.get(uid).add(socket.id);
-
   db.prepare('UPDATE users SET is_online = 1 WHERE id = ?').run(uid);
   io.emit('user:online', { userId: uid, online: true });
 
@@ -292,9 +457,8 @@ io.on('connection', (socket) => {
   });
 });
 
-// SPA fallback
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../dist/index.html'));
 });
 
-server.listen(PORT, () => console.log(`GChat running on port ${PORT}`));
+server.listen(PORT, () => console.log(`GChat v2 on port ${PORT}`));
