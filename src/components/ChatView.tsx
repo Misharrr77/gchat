@@ -12,7 +12,7 @@ interface Props { onBack: () => void; onProfile: (u: User) => void; isMobile: bo
 
 export default function ChatView({ onBack, onProfile, isMobile }: Props) {
   const { user: me } = useAuth();
-  const { active, messages, loadingMsgs, typingUsers, onlineUsers } = useChat();
+  const { active, messages, loadingMsgs, typingUsers, onlineUsers, socketOk } = useChat();
   const endRef = useRef<HTMLDivElement>(null);
   const [imgPreview, setImgPreview] = useState<string | null>(null);
   const [showGroupProfile, setShowGroupProfile] = useState(false);
