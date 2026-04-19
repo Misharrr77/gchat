@@ -2,10 +2,11 @@ import { useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import Avatar from './Avatar';
 import { Message } from '../types';
-import { format, parseISO } from 'date-fns';
 import { Radio, User } from 'lucide-react';
 import ChatVideo from './media/ChatVideo';
 import ChatAudio from './media/ChatAudio';
+import ReplyQuotePreview from './ReplyQuotePreview';
+import { formatKaliningradClock } from '../lib/datetime';
 
 interface Props {
   message: Message;
@@ -44,22 +45,10 @@ export default function MessageBubble({
 
   const agg = useMemo(() => aggReactions(message, user?.id), [message.reactions, user?.id]);
 
-  const time = (() => {
-    try {
-      return format(parseISO(message.created_at), 'HH:mm');
-    } catch {
-      return '';
-    }
-  })();
+  const time = formatKaliningradClock(message.created_at);
 
   const realName = message.sender_display_name || message.sender_username;
   const displayName = asOfficial ? message.channel_name || 'Канал' : realName;
-
-  const previewSnippet = (rp: NonNullable<Message['reply_preview']>) => {
-    if (rp.type !== 'text' && rp.content) return `[${rp.type}]`;
-    const t = (rp.content || '').trim();
-    return t.length > 72 ? `${t.slice(0, 72)}…` : t || '…';
-  };
 
   const bubbleClass = asOfficial
     ? isMine
@@ -113,14 +102,18 @@ export default function MessageBubble({
         <div className={`rounded-2xl px-3.5 py-2.5 ${bubbleClass}${ringSelected}`}>
           {message.reply_preview && (
             <div
-              className={`mb-2 rounded-lg px-2.5 py-2 border-l-2 border-accent/90 bg-black/20 ${
+              className={`mb-2 rounded-lg px-2.5 py-2 border-l-2 border-accent/90 bg-black/20 pointer-events-auto ${
                 isMine && !asOfficial ? 'bg-white/10' : ''
               }`}
             >
-              <p className="text-[10px] font-semibold text-white/90 truncate">
-                {message.reply_preview.sender_display_name || message.reply_preview.sender_username}
-              </p>
-              <p className="text-[11px] opacity-90 truncate">{previewSnippet(message.reply_preview)}</p>
+              <ReplyQuotePreview
+                variant="bubble"
+                type={message.reply_preview.type as Message['type']}
+                content={message.reply_preview.content}
+                media_url={message.reply_preview.media_url}
+                senderName={message.reply_preview.sender_display_name || message.reply_preview.sender_username}
+                onImageClick={onImageClick}
+              />
             </div>
           )}
           {message.type === 'image' && message.media_url && (

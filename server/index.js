@@ -353,7 +353,7 @@ function fetchReactionsForMessages(messageIds) {
 const MSG_BASE = `m.id, m.conversation_id, m.sender_id, m.content, m.type, m.media_url, m.reply_to_id, m.post_as_channel, m.created_at,
   u.username as sender_username, u.display_name as sender_display_name, u.avatar as sender_avatar, u.video_avatar as sender_video_avatar,
   c.type as _conv_type, c.name as _conv_name, c.avatar as _conv_avatar,
-  rm.id as _reply_id, rm.content as _reply_content, rm.type as _reply_type,
+  rm.id as _reply_id, rm.content as _reply_content, rm.type as _reply_type, rm.media_url as _reply_media_url,
   ru.display_name as _reply_sender_display, ru.username as _reply_sender_username`;
 
 const MSG_FROM = `FROM messages m
@@ -400,6 +400,7 @@ function shapeDbMessage(row, reactionsMap) {
       type: row._reply_type,
       sender_display_name: row._reply_sender_display,
       sender_username: row._reply_sender_username,
+      media_url: row._reply_media_url || null,
     };
   }
   return msg;

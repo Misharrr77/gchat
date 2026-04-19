@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 import Avatar from './Avatar';
 import { X, Camera, Edit3, Trash2, ImagePlus, Music, User as UserIcon, Play, Pause, Upload, Loader } from 'lucide-react';
 import { User, AlbumPhoto, ProfileTrack } from '../types';
-import { format, parseISO } from 'date-fns';
+import { formatKaliningradDate } from '../lib/datetime';
 
 type Tab = 'profile' | 'album' | 'music';
 
@@ -94,7 +94,7 @@ export default function ProfileModal({ userId, onClose }: { userId: string; onCl
   };
 
   if (!profile) return null;
-  const joined = (() => { try { return format(parseISO(profile.created_at), 'dd.MM.yyyy'); } catch { return ''; } })();
+  const joined = formatKaliningradDate(profile.created_at);
 
   const tabClass = (t: Tab) => tab === t
     ? 'flex-1 py-2.5 text-xs font-semibold text-accent border-b-2 border-accent'

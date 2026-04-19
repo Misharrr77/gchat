@@ -10,19 +10,9 @@ import { Menu, MessageSquare, Users, Radio, Plus, Search, Compass, ChevronLeft, 
 import ChatVideo from './media/ChatVideo';
 import ChatAudio from './media/ChatAudio';
 import { Conversation, User, SavedListItem } from '../types';
-import { format, isToday, isYesterday, parseISO } from 'date-fns';
+import { formatKaliningradListTime } from '../lib/datetime';
 
 type Tab = 'direct' | 'group' | 'channel';
-
-function fmtTime(d?: string | null) {
-  if (!d) return '';
-  try {
-    const p = parseISO(d);
-    if (isToday(p)) return format(p, 'HH:mm');
-    if (isYesterday(p)) return 'вчера';
-    return format(p, 'dd.MM');
-  } catch { return ''; }
-}
 
 interface Props {
   onSelect: (c?: Conversation) => void;
@@ -33,7 +23,7 @@ interface Props {
   onListModeChange?: (mode: 'chats' | 'favorites') => void;
 }
 
-function SavedFavoriteRow({ item, fmtTime }: { item: SavedListItem; fmtTime: (d?: string | null) => string }) {
+function SavedFavoriteRow({ item }: { item: SavedListItem }) {
   const m = item.message;
 
   return (
@@ -43,7 +33,7 @@ function SavedFavoriteRow({ item, fmtTime }: { item: SavedListItem; fmtTime: (d?
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
             <span className="text-sm font-semibold text-white truncate">{item.conversation.name}</span>
-            <span className="text-[10px] text-slate-500 whitespace-nowrap flex-shrink-0">{fmtTime(item.saved_at)}</span>
+            <span className="text-[10px] text-slate-500 whitespace-nowrap flex-shrink-0">{formatKaliningradListTime(item.saved_at)}</span>
           </div>
           <div className="mt-2 space-y-2">
             {m.type === 'image' && m.media_url && (
@@ -124,7 +114,7 @@ export default function Sidebar({
               <p className="text-xs mt-2 text-slate-600 max-w-[240px]">Выберите сообщение в чате и нажмите «В избранное» в панели действий.</p>
             </div>
           ) : (
-            savedItems.map(item => <SavedFavoriteRow key={item.save_id} item={item} fmtTime={fmtTime} />)
+            savedItems.map(item => <SavedFavoriteRow key={item.save_id} item={item} />)
           )}
         </div>
       </div>
@@ -194,7 +184,7 @@ export default function Sidebar({
                       {(c.unread_count ?? 0) > 99 ? '99+' : c.unread_count}
                     </span>
                   )}
-                  <span className="text-[10px] text-slate-500 whitespace-nowrap">{fmtTime(c.last_message_at)}</span>
+                  <span className="text-[10px] text-slate-500 whitespace-nowrap">{formatKaliningradListTime(c.last_message_at)}</span>
                 </div>
               </div>
               <p className="text-xs text-slate-400 truncate mt-0.5">

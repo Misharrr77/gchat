@@ -5,6 +5,7 @@ import { getSocket } from '../lib/socket';
 import { Send, Paperclip, Image, Music, Video, X, Radio, User } from 'lucide-react';
 import ChatVideo from './media/ChatVideo';
 import ChatAudio from './media/ChatAudio';
+import ReplyQuotePreview from './ReplyQuotePreview';
 
 const HEARTBEAT_MS = 2200;
 
@@ -132,16 +133,20 @@ export default function MessageInput() {
       )}
       {replyTo && (
         <div className="px-4 pt-3 flex items-start gap-2 border-b border-dark-600/60">
-          <div className="flex-1 min-w-0 border-l-2 border-accent pl-2 py-0.5">
-            <p className="text-[10px] text-accent font-medium truncate">
-              {replyTo.sender_display_name || replyTo.sender_username}
-            </p>
-            <p className="text-xs text-slate-400 line-clamp-2">{(replyTo.content || '').trim() || (replyTo.type !== 'text' ? `[${replyTo.type}]` : '…')}</p>
+          <div className="flex-1 min-w-0 border-l-2 border-accent pl-2 py-1.5">
+            <ReplyQuotePreview
+              variant="composer"
+              compact
+              type={replyTo.type}
+              content={replyTo.content}
+              media_url={replyTo.media_url}
+              senderName={replyTo.sender_display_name || replyTo.sender_username}
+            />
           </div>
           <button
             type="button"
             onClick={() => setReplyTo(null)}
-            className="p-1 text-slate-500 hover:text-white flex-shrink-0"
+            className="p-1 text-slate-500 hover:text-white flex-shrink-0 self-start mt-0.5"
             aria-label="Отменить ответ"
           >
             <X size={16} />

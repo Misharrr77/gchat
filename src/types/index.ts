@@ -44,6 +44,7 @@ export interface ReplyPreview {
   type: string;
   sender_display_name: string;
   sender_username: string;
+  media_url?: string | null;
 }
 
 export interface Message {
