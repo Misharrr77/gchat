@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode,
 import { api } from '../lib/api';
 import { connectSocket, disconnectSocket, isSocketConnected } from '../lib/socket';
 import { useAuth } from './AuthContext';
-import { Conversation, Message, StoryGroup, User } from '../types';
+import { Conversation, Message, PinnedEntry, StoryGroup, User } from '../types';
 import { playNotificationSound } from '../lib/sounds';
 
 function mergeUserIntoConversations(prev: Conversation[], u: User): Conversation[] {
@@ -43,6 +43,12 @@ interface Ctx {
   sendMessage: (content: string, type?: string, mediaUrl?: string, replyToId?: string | null, postAsChannel?: boolean) => Promise<void>;
   toggleReaction: (messageId: string, emoji: string) => Promise<void>;
   patchMessage: (messageId: string, patch: Partial<Message>) => void;
+  pins: PinnedEntry[];
+  refreshPins: () => Promise<void>;
+  jumpToMessage: (conv: Conversation, messageId: string) => void;
+  scrollToMessageInChat: (messageId: string) => void;
+  pendingScrollMessageId: string | null;
+  clearPendingScroll: () => void;
   startConversation: (userId: string) => Promise<Conversation>;
   refresh: () => Promise<void>;
   refreshStories: () => Promise<void>;
@@ -71,6 +77,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const userIdRef = useRef<string | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const typingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const jumpLoadRef = useRef<{ convId: string; messageId: string } | null>(null);
+  const [pins, setPins] = useState<PinnedEntry[]>([]);
+  const [pendingScrollMessageId, setPendingScrollMessageId] = useState<string | null>(null);
+  const [messagesLoadNonce, setMessagesLoadNonce] = useState(0);
 
   useEffect(() => {
     activeRef.current = active;
@@ -128,6 +138,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     socket.off('user:typing');
     socket.off('user:typing:stop');
     socket.off('story:new');
+    socket.off('pins:updated');
 
     socket.on('connect', () => {
       console.log('[GChat] Socket connected, id:', socket.id, 'transport:', socket.io.engine.transport.name);
@@ -251,6 +262,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     socket.on('story:new', () => refreshStories());
 
+    socket.on('pins:updated', ({ conversationId, pins: nextPins }: { conversationId: string; pins: PinnedEntry[] }) => {
+      if (activeRef.current?.id !== conversationId) return;
+      setPins(nextPins || []);
+    });
+
     refresh();
     refreshStories();
 
@@ -268,6 +284,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       socket.off('user:typing');
       socket.off('user:typing:stop');
       socket.off('story:new');
+      socket.off('pins:updated');
     };
   }, [user?.id, refresh, refreshStories, updateUser]);
 
@@ -306,19 +323,43 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(interval);
   }, [active?.id, user?.id]);
 
+  const refreshPins = useCallback(async () => {
+    const cid = activeRef.current?.id;
+    if (!cid) {
+      setPins([]);
+      return;
+    }
+    try {
+      const d = await api.conversations.pins(cid);
+      setPins(d.pins || []);
+    } catch {
+      setPins([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshPins();
+  }, [active?.id, refreshPins]);
+
   useEffect(() => {
     if (!active) {
       setMessages([]);
+      setPendingScrollMessageId(null);
       return;
     }
     const cid = active.id;
+    const jl = jumpLoadRef.current;
+    const anchor = jl?.convId === cid ? jl.messageId : undefined;
+    if (jl?.convId === cid) jumpLoadRef.current = null;
+
     setLoadingMsgs(true);
     let cancelled = false;
     api.messages
-      .list(cid)
+      .list(cid, anchor ? { anchor } : undefined)
       .then(d => {
         if (cancelled || activeRef.current?.id !== cid) return;
         setMessages(d.messages);
+        if (anchor) setPendingScrollMessageId(anchor);
       })
       .catch(() => {})
       .finally(() => {
@@ -327,7 +368,27 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [active?.id]);
+  }, [active?.id, messagesLoadNonce]);
+
+  const jumpToMessage = useCallback((conv: Conversation, messageId: string) => {
+    jumpLoadRef.current = { convId: conv.id, messageId };
+    const sameChat = activeRef.current?.id === conv.id;
+    setActive(conv);
+    if (sameChat) setMessagesLoadNonce(n => n + 1);
+  }, []);
+
+  const scrollToMessageInChat = useCallback((messageId: string) => {
+    const cid = activeRef.current?.id;
+    if (!cid) return;
+    if (messagesRef.current.some(m => m.id === messageId)) {
+      setPendingScrollMessageId(messageId);
+      return;
+    }
+    jumpLoadRef.current = { convId: cid, messageId };
+    setMessagesLoadNonce(n => n + 1);
+  }, []);
+
+  const clearPendingScroll = useCallback(() => setPendingScrollMessageId(null), []);
 
   const sendMessage = useCallback(async (content: string, type = 'text', mediaUrl?: string, replyToId?: string | null, postAsChannel?: boolean) => {
     if (!activeRef.current) return;
@@ -389,6 +450,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         sendMessage,
         toggleReaction,
         patchMessage,
+        pins,
+        refreshPins,
+        jumpToMessage,
+        scrollToMessageInChat,
+        pendingScrollMessageId,
+        clearPendingScroll,
         startConversation,
         refresh,
         refreshStories,

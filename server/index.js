@@ -422,18 +422,87 @@ function broadcastMessageReaction(conversationId, messageId, reactions) {
   });
 }
 
-app.get('/api/messages/:conversationId', auth, (req, res) => {
-  const { conversationId } = req.params;
-  const { limit = 50, before } = req.query;
-  const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conversationId, req.user.id);
-  if (!member) return res.status(403).json({ error: 'Not a member' });
-  const rows = before
-    ? db.prepare(`SELECT ${MSG_BASE}${MSG_SELECT_SAVED} ${MSG_FROM} WHERE m.conversation_id = ? AND m.created_at < ? ORDER BY m.created_at DESC LIMIT ?`).all(req.user.id, conversationId, before, +limit)
-    : db.prepare(`SELECT ${MSG_BASE}${MSG_SELECT_SAVED} ${MSG_FROM} WHERE m.conversation_id = ? ORDER BY m.created_at DESC LIMIT ?`).all(req.user.id, conversationId, +limit);
-  const ids = rows.map(r => r.id);
+function canUserPinConversation(conversationId, userId) {
+  const conv = db.prepare('SELECT type FROM conversations WHERE id = ?').get(conversationId);
+  if (!conv) return false;
+  if (conv.type === 'direct') return !!db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conversationId, userId);
+  const role = db.prepare('SELECT role FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conversationId, userId);
+  return role?.role === 'admin';
+}
+
+function buildPinsListForUser(conversationId, userId) {
+  const pins = db.prepare(
+    `SELECT message_id, pinned_by, pinned_at FROM pinned_messages WHERE conversation_id = ? ORDER BY pinned_at DESC`
+  ).all(conversationId);
+  if (!pins.length) return [];
+  const ids = pins.map(p => p.message_id);
+  const ph = ids.map(() => '?').join(',');
+  const msgRows = db.prepare(
+    `SELECT ${MSG_BASE}${MSG_SELECT_SAVED} ${MSG_FROM} WHERE m.conversation_id = ? AND m.id IN (${ph})`
+  ).all(userId, conversationId, ...ids);
   const reactMap = fetchReactionsForMessages(ids);
-  const messages = rows.reverse().map(r => shapeDbMessage(r, reactMap));
-  res.json({ messages });
+  const byId = new Map(msgRows.map(r => [r.id, r]));
+  return pins
+    .map(p => ({
+      message_id: p.message_id,
+      pinned_by: p.pinned_by,
+      pinned_at: p.pinned_at,
+      message: byId.get(p.message_id) ? shapeDbMessage(byId.get(p.message_id), reactMap) : null,
+    }))
+    .filter(x => x.message);
+}
+
+function broadcastPinsUpdated(conversationId) {
+  const members = db.prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ?').all(conversationId);
+  members.forEach(({ user_id }) => {
+    const socks = onlineUsers.get(user_id);
+    if (!socks) return;
+    const pins = buildPinsListForUser(conversationId, user_id);
+    socks.forEach(sid => io.to(sid).emit('pins:updated', { conversationId, pins }));
+  });
+}
+
+app.get('/api/messages/:conversationId', auth, (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { limit = 50, before, anchor } = req.query;
+    const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conversationId, req.user.id);
+    if (!member) return res.status(403).json({ error: 'Not a member' });
+    const uid = req.user.id;
+    let rows;
+    if (anchor) {
+      const a = db.prepare('SELECT created_at FROM messages WHERE id = ? AND conversation_id = ?').get(anchor, conversationId);
+      if (!a) return res.status(404).json({ error: 'Сообщение не найдено' });
+      const lim = Math.min(Math.max(+limit || 60, 30), 150);
+      const half = Math.ceil(lim / 2);
+      const older = db
+        .prepare(`SELECT ${MSG_BASE}${MSG_SELECT_SAVED} ${MSG_FROM} WHERE m.conversation_id = ? AND m.created_at <= ? ORDER BY m.created_at DESC LIMIT ?`)
+        .all(uid, conversationId, a.created_at, half + 20);
+      const newer = db
+        .prepare(`SELECT ${MSG_BASE}${MSG_SELECT_SAVED} ${MSG_FROM} WHERE m.conversation_id = ? AND m.created_at > ? ORDER BY m.created_at ASC LIMIT ?`)
+        .all(uid, conversationId, a.created_at, half + 20);
+      const seen = new Map();
+      [...newer, ...older].forEach(r => seen.set(r.id, r));
+      rows = [...seen.values()].sort((x, y) => new Date(x.created_at) - new Date(y.created_at));
+    } else if (before) {
+      rows = db
+        .prepare(`SELECT ${MSG_BASE}${MSG_SELECT_SAVED} ${MSG_FROM} WHERE m.conversation_id = ? AND m.created_at < ? ORDER BY m.created_at DESC LIMIT ?`)
+        .all(uid, conversationId, before, +limit)
+        .reverse();
+    } else {
+      rows = db
+        .prepare(`SELECT ${MSG_BASE}${MSG_SELECT_SAVED} ${MSG_FROM} WHERE m.conversation_id = ? ORDER BY m.created_at DESC LIMIT ?`)
+        .all(uid, conversationId, +limit)
+        .reverse();
+    }
+    const ids = rows.map(r => r.id);
+    const reactMap = fetchReactionsForMessages(ids);
+    const messages = rows.map(r => shapeDbMessage(r, reactMap));
+    res.json({ messages });
+  } catch (err) {
+    console.error('[API] GET messages', err);
+    res.status(500).json({ error: err.message || 'Internal server error' });
+  }
 });
 
 app.post('/api/messages/:messageId/reactions', auth, (req, res) => {
@@ -550,6 +619,54 @@ app.post('/api/saved/:messageId', auth, (req, res) => {
 app.delete('/api/saved/:messageId', auth, (req, res) => {
   db.prepare('DELETE FROM saved_messages WHERE user_id = ? AND message_id = ?').run(req.user.id, req.params.messageId);
   res.json({ saved: false });
+});
+
+// ── Pinned messages ──
+
+app.get('/api/conversations/:conversationId/pins', auth, (req, res) => {
+  const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(req.params.conversationId, req.user.id);
+  if (!member) return res.status(403).json({ error: 'Not a member' });
+  const pins = buildPinsListForUser(req.params.conversationId, req.user.id);
+  res.json({ pins });
+});
+
+app.post('/api/conversations/:conversationId/pin', auth, (req, res) => {
+  try {
+    const { messageId } = req.body;
+    if (!messageId) return res.status(400).json({ error: 'messageId required' });
+    const { conversationId } = req.params;
+    if (!canUserPinConversation(conversationId, req.user.id)) return res.status(403).json({ error: 'Нельзя закрепить' });
+    const msg = db.prepare('SELECT id FROM messages WHERE id = ? AND conversation_id = ?').get(messageId, conversationId);
+    if (!msg) return res.status(404).json({ error: 'Не найдено' });
+    const cnt = db.prepare('SELECT COUNT(*) as c FROM pinned_messages WHERE conversation_id = ?').get(conversationId).c;
+    if (cnt >= 12) return res.status(400).json({ error: 'Слишком много закреплённых' });
+    try {
+      db.prepare('INSERT INTO pinned_messages (conversation_id, message_id, pinned_by) VALUES (?, ?, ?)').run(conversationId, messageId, req.user.id);
+    } catch (e) {
+      if (String(e.message || '').includes('UNIQUE')) {
+        broadcastPinsUpdated(conversationId);
+        return res.json({ ok: true });
+      }
+      throw e;
+    }
+    broadcastPinsUpdated(conversationId);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[API] pin', err);
+    res.status(500).json({ error: err.message || 'Internal server error' });
+  }
+});
+
+app.delete('/api/conversations/:conversationId/pin/:messageId', auth, (req, res) => {
+  try {
+    const { conversationId, messageId } = req.params;
+    if (!canUserPinConversation(conversationId, req.user.id)) return res.status(403).json({ error: 'Нельзя' });
+    db.prepare('DELETE FROM pinned_messages WHERE conversation_id = ? AND message_id = ?').run(conversationId, messageId);
+    broadcastPinsUpdated(conversationId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Internal server error' });
+  }
 });
 
 // ── Stories (only from contacts) ──

@@ -31,11 +31,63 @@ interface Props {
   onListModeChange?: (mode: 'chats' | 'favorites') => void;
 }
 
-function savedSnippet(msg: SavedListItem['message']) {
-  if (msg.type !== 'text' && msg.media_url)
-    return msg.type === 'image' ? '📷 Фото' : msg.type === 'audio' ? '🎵 Аудио' : '🎬 Видео';
-  const t = (msg.content || '').trim();
-  return t.length > 96 ? `${t.slice(0, 96)}…` : t || '…';
+function SavedFavoriteRow({
+  item,
+  fmtTime,
+  onJumpToChat,
+}: {
+  item: SavedListItem;
+  fmtTime: (d?: string | null) => string;
+  onJumpToChat: () => void;
+}) {
+  const m = item.message;
+  const rowNavigate = (e: React.MouseEvent) => {
+    const t = e.target as HTMLElement;
+    if (t.closest('audio, video, .saved-no-nav')) return;
+    onJumpToChat();
+  };
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={rowNavigate}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onJumpToChat();
+        }
+      }}
+      className="w-full px-4 py-3 text-left border-b border-dark-700/60 hover:bg-dark-700/40 transition cursor-pointer"
+    >
+      <div className="flex items-start gap-3">
+        <Avatar src={item.conversation.avatar} name={item.conversation.name || '?'} size={44} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-semibold text-white truncate">{item.conversation.name}</span>
+            <span className="text-[10px] text-slate-500 whitespace-nowrap flex-shrink-0">{fmtTime(item.saved_at)}</span>
+          </div>
+          <p className="text-[10px] text-accent/90 mt-0.5">Нажмите, чтобы перейти к сообщению в чате</p>
+          <div className="mt-2 rounded-xl overflow-hidden bg-dark-900/60 border border-dark-600/50 saved-no-nav" onClick={e => e.stopPropagation()}>
+            {m.type === 'image' && m.media_url && (
+              <img src={m.media_url} alt="" className="w-full max-h-52 object-cover bg-black/40" />
+            )}
+            {m.type === 'video' && m.media_url && (
+              <video src={m.media_url} controls playsInline className="w-full max-h-52 bg-black/60" preload="metadata" />
+            )}
+            {m.type === 'audio' && m.media_url && (
+              <div className="p-3 bg-dark-800">
+                <audio src={m.media_url} controls className="w-full max-h-10" preload="metadata" />
+              </div>
+            )}
+          </div>
+          {m.content ? (
+            <p className="text-xs text-slate-400 mt-2 line-clamp-4 whitespace-pre-wrap">{m.content}</p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function Sidebar({
@@ -47,7 +99,7 @@ export default function Sidebar({
   onListModeChange,
 }: Props) {
   const { user } = useAuth();
-  const { conversations, active, setActive, stories } = useChat();
+  const { conversations, active, setActive, stories, jumpToMessage } = useChat();
   const [tab, setTab] = useState<Tab>('direct');
   const [showSearch, setShowSearch] = useState(false);
   const [showCreate, setShowCreate] = useState<'group' | 'channel' | null>(null);
@@ -70,7 +122,7 @@ export default function Sidebar({
   }, [listMode]);
 
   const openSavedChat = (item: SavedListItem) => {
-    setActive(item.conversation);
+    jumpToMessage(item.conversation, item.message.id);
     onSelect();
     onListModeChange?.('chats');
   };
@@ -106,21 +158,12 @@ export default function Sidebar({
             </div>
           ) : (
             savedItems.map(item => (
-              <button
+              <SavedFavoriteRow
                 key={item.save_id}
-                type="button"
-                onClick={() => openSavedChat(item)}
-                className="w-full flex items-start gap-3 px-4 py-3 text-left border-b border-dark-700/60 hover:bg-dark-700/40 transition active:bg-dark-600"
-              >
-                <Avatar src={item.conversation.avatar} name={item.conversation.name || '?'} size={44} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-white truncate">{item.conversation.name}</span>
-                    <span className="text-[10px] text-slate-500 whitespace-nowrap flex-shrink-0">{fmtTime(item.saved_at)}</span>
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1 line-clamp-3">{savedSnippet(item.message)}</p>
-                </div>
-              </button>
+                item={item}
+                fmtTime={fmtTime}
+                onJumpToChat={() => openSavedChat(item)}
+              />
             ))
           )}
         </div>

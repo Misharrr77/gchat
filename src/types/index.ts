@@ -78,6 +78,13 @@ export interface SavedListItem {
   message: Message;
 }
 
+export interface PinnedEntry {
+  message_id: string;
+  pinned_by: string;
+  pinned_at: string;
+  message: Message;
+}
+
 export interface Story { id: string; user_id: string; type: 'image' | 'video' | 'text'; media_url: string | null; text_content: string | null; bg_color: string; created_at: string; expires_at: string; view_count: number; viewed: number | null; }
 export interface StoryGroup { user_id: string; username: string; display_name: string; avatar: string | null; video_avatar: string | null; stories: Story[]; has_unviewed: boolean; }
 export interface AlbumPhoto { id: string; user_id: string; url: string; caption: string; created_at: string; }

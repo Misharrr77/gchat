@@ -1,4 +1,4 @@
-import type { SavedListItem } from '../types';
+import type { PinnedEntry, SavedListItem } from '../types';
 
 const BASE = '/api';
 
@@ -52,6 +52,11 @@ export const api = {
     removeMember: (convId: string, userId: string) =>
       req(`/conversations/${convId}/members/${userId}`, { method: 'DELETE' }),
     markRead: (id: string) => req(`/conversations/${id}/read`, { method: 'POST' }),
+    pins: (id: string): Promise<{ pins: PinnedEntry[] }> => req(`/conversations/${id}/pins`),
+    pin: (conversationId: string, messageId: string) =>
+      req(`/conversations/${conversationId}/pin`, { method: 'POST', body: JSON.stringify({ messageId }) }),
+    unpin: (conversationId: string, messageId: string) =>
+      req(`/conversations/${conversationId}/pin/${messageId}`, { method: 'DELETE' }),
   },
   discover: (q: string) => req(`/discover?q=${encodeURIComponent(q)}`),
   saved: {
@@ -60,7 +65,13 @@ export const api = {
     remove: (messageId: string) => req(`/saved/${messageId}`, { method: 'DELETE' }) as Promise<{ saved: boolean }>,
   },
   messages: {
-    list: (cid: string, before?: string) => req(`/messages/${cid}${before ? `?before=${before}` : ''}`),
+    list: (cid: string, opts?: { before?: string; anchor?: string }) => {
+      const p = new URLSearchParams();
+      if (opts?.before) p.set('before', opts.before);
+      if (opts?.anchor) p.set('anchor', opts.anchor);
+      const qs = p.toString();
+      return req(`/messages/${cid}${qs ? `?${qs}` : ''}`);
+    },
     send: (body: {
       conversationId: string;
       content: string;

@@ -7,7 +7,7 @@ import GroupProfileModal from './GroupProfileModal';
 import Avatar from './Avatar';
 import { api } from '../lib/api';
 import { QUICK_REACTIONS } from '../lib/reactions';
-import { ArrowLeft, Users, Radio, Info, Star, X, Reply } from 'lucide-react';
+import { ArrowLeft, Users, Radio, Info, Star, X, Reply, Pin } from 'lucide-react';
 import { User, Message } from '../types';
 
 interface Props {
@@ -16,29 +16,48 @@ interface Props {
   isMobile: boolean;
 }
 
-function reactionAgg(msg: Message, myId: string | undefined) {
-  const r = msg.reactions || [];
-  const map = new Map<string, { emoji: string; count: number; mine: boolean }>();
-  r.forEach(x => {
-    const prev = map.get(x.emoji) || { emoji: x.emoji, count: 0, mine: false };
-    prev.count++;
-    if (x.user_id === myId) prev.mine = true;
-    map.set(x.emoji, prev);
-  });
-  return [...map.values()].sort((a, b) => b.count - a.count);
-}
-
 export default function ChatView({ onBack, onProfile, isMobile }: Props) {
   const { user: me } = useAuth();
-  const { active, messages, loadingMsgs, typingUsers, onlineUsers, setReplyTo, toggleReaction, patchMessage } = useChat();
+  const {
+    active,
+    messages,
+    loadingMsgs,
+    typingUsers,
+    onlineUsers,
+    setReplyTo,
+    toggleReaction,
+    patchMessage,
+    pins,
+    refreshPins,
+    pendingScrollMessageId,
+    clearPendingScroll,
+    scrollToMessageInChat,
+  } = useChat();
   const endRef = useRef<HTMLDivElement>(null);
+  const suppressAutoScrollUntil = useRef(0);
   const [imgPreview, setImgPreview] = useState<string | null>(null);
   const [showGroupProfile, setShowGroupProfile] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (Date.now() < suppressAutoScrollUntil.current) return;
+    if (pendingScrollMessageId) return;
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, pendingScrollMessageId]);
+
+  useEffect(() => {
+    if (!pendingScrollMessageId || loadingMsgs) return;
+    const id = pendingScrollMessageId;
+    const t = window.setTimeout(() => {
+      const el = document.getElementById(`msg-${id}`);
+      if (el) {
+        suppressAutoScrollUntil.current = Date.now() + 1200;
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        clearPendingScroll();
+      }
+    }, 50);
+    return () => clearTimeout(t);
+  }, [pendingScrollMessageId, loadingMsgs, messages, clearPendingScroll]);
 
   useEffect(() => {
     setSelectedId(null);
@@ -55,11 +74,12 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
   const isDirect = active.type === 'direct';
   const myRole = active.members?.find(m => m.id === me?.id)?.role;
   const canWrite = !isChannel || myRole === 'admin';
+  const canPin = isDirect || myRole === 'admin';
 
   const selectedMsg = useMemo(() => messages.find(m => m.id === selectedId) || null, [messages, selectedId]);
-  const selectedAgg = useMemo(
-    () => (selectedMsg ? reactionAgg(selectedMsg, me?.id) : []),
-    [selectedMsg, me?.id]
+  const selectedIsPinned = useMemo(
+    () => !!selectedMsg && pins.some(p => p.message_id === selectedMsg.id),
+    [pins, selectedMsg]
   );
 
   const nameForTypingId = (id: string) => {
@@ -103,12 +123,33 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
     }
   };
 
+  const togglePin = async () => {
+    if (!selectedMsg || !canPin) return;
+    try {
+      if (selectedIsPinned) {
+        await api.conversations.unpin(active.id, selectedMsg.id);
+      } else {
+        await api.conversations.pin(active.id, selectedMsg.id);
+      }
+      await refreshPins();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const pickMessage = (msg: Message) => {
     setSelectedId(cur => (cur === msg.id ? null : msg.id));
   };
 
+  const pinLabel = (m: Message) => {
+    if (m.type === 'image') return '📷 Фото';
+    if (m.type === 'video') return '🎬 Видео';
+    if (m.type === 'audio') return '🎵 Аудио';
+    return (m.content || 'Сообщение').trim().slice(0, 80) + ((m.content || '').length > 80 ? '…' : '');
+  };
+
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center gap-2 px-3 py-2.5 bg-dark-800 border-b border-dark-600 flex-shrink-0">
         <button onClick={onBack} className={`p-2 hover:bg-dark-700 rounded-xl text-slate-400 flex-shrink-0 ${isMobile ? '' : 'hidden'}`}>
           <ArrowLeft size={20} />
@@ -130,6 +171,27 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
           </button>
         )}
       </div>
+
+      {pins.length > 0 && (
+        <div className="flex-shrink-0 border-b border-dark-600 bg-dark-800/95 px-2 py-2 overflow-x-auto">
+          <div className="flex gap-2 min-w-min">
+            {pins.map(p => (
+              <button
+                key={p.message_id}
+                type="button"
+                onClick={() => scrollToMessageInChat(p.message_id)}
+                className="flex-shrink-0 max-w-[220px] text-left px-3 py-2 rounded-xl bg-dark-700/90 hover:bg-dark-600 border border-dark-500/80 transition group"
+              >
+                <div className="flex items-center gap-1.5 text-accent mb-0.5">
+                  <Pin size={12} className="flex-shrink-0" />
+                  <span className="text-[10px] font-semibold uppercase tracking-wide">Закреп</span>
+                </div>
+                <p className="text-xs text-slate-200 line-clamp-2">{pinLabel(p.message)}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div
         className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5 min-h-0"
@@ -154,6 +216,7 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
               showSenderNames={isGroup || isChannel}
               isSelected={selectedId === msg.id}
               onSelect={() => pickMessage(msg)}
+              onToggleReaction={emoji => toggleReaction(msg.id, emoji)}
             />
           ))
         )}
@@ -196,20 +259,20 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
             <Star size={16} className={selectedMsg.is_saved ? 'fill-amber-300 text-amber-300' : ''} />
             {selectedMsg.is_saved ? 'В избранном' : 'В избранное'}
           </button>
+          {canPin && (
+            <button
+              type="button"
+              onClick={() => togglePin()}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm transition ${
+                selectedIsPinned ? 'bg-accent/25 text-accent ring-1 ring-accent/40' : 'bg-dark-700 text-slate-200 hover:bg-dark-600'
+              }`}
+            >
+              <Pin size={16} className={selectedIsPinned ? 'fill-accent' : ''} />
+              {selectedIsPinned ? 'Открепить' : 'Закрепить'}
+            </button>
+          )}
           <div className="flex flex-wrap items-center gap-1 pl-1 border-l border-dark-600 ml-0.5">
-            {selectedAgg.map(a => (
-              <button
-                key={a.emoji}
-                type="button"
-                onClick={() => toggleReaction(selectedMsg.id, a.emoji)}
-                className={`inline-flex items-center gap-0.5 px-2 py-1 rounded-full text-xs border transition ${
-                  a.mine ? 'border-accent bg-accent/25 text-white' : 'border-dark-500 bg-dark-700 text-slate-300 hover:bg-dark-600'
-                }`}
-              >
-                <span>{a.emoji}</span>
-                <span className="text-[10px] opacity-80">{a.count}</span>
-              </button>
-            ))}
+            <span className="text-[10px] text-slate-500 uppercase mr-1">эмодзи</span>
             {QUICK_REACTIONS.map(e => (
               <button
                 key={e}

@@ -154,4 +154,18 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_saved_user ON saved_messages(user_id, created_at);
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS pinned_messages (
+    conversation_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    pinned_by TEXT NOT NULL,
+    pinned_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (conversation_id, message_id),
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+    FOREIGN KEY (pinned_by) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_pins_conv ON pinned_messages(conversation_id, pinned_at);
+`);
+
 module.exports = db;

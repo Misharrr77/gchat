@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import Avatar from './Avatar';
 import { Message } from '../types';
@@ -11,6 +12,19 @@ interface Props {
   showSenderNames?: boolean;
   isSelected?: boolean;
   onSelect?: () => void;
+  onToggleReaction?: (emoji: string) => void;
+}
+
+function aggReactions(msg: Message, myId: string | undefined) {
+  const r = msg.reactions || [];
+  const map = new Map<string, { emoji: string; count: number; mine: boolean }>();
+  r.forEach(x => {
+    const prev = map.get(x.emoji) || { emoji: x.emoji, count: 0, mine: false };
+    prev.count++;
+    if (x.user_id === myId) prev.mine = true;
+    map.set(x.emoji, prev);
+  });
+  return [...map.values()].sort((a, b) => b.count - a.count);
 }
 
 export default function MessageBubble({
@@ -20,10 +34,13 @@ export default function MessageBubble({
   showSenderNames,
   isSelected,
   onSelect,
+  onToggleReaction,
 }: Props) {
   const { user } = useAuth();
   const isMine = message.sender_id === user?.id;
   const asOfficial = !!(message.as_channel && message.channel_name);
+
+  const agg = useMemo(() => aggReactions(message, user?.id), [message.reactions, user?.id]);
 
   const time = (() => {
     try {
@@ -54,6 +71,7 @@ export default function MessageBubble({
 
   return (
     <div
+      id={`msg-${message.id}`}
       className={`flex gap-2 group/msg ${isMine ? 'justify-end' : ''} ${showAvatar ? 'mt-3' : 'mt-0.5'} cursor-pointer`}
       onClick={e => {
         e.stopPropagation();
@@ -130,6 +148,26 @@ export default function MessageBubble({
             <p className="text-[10px]">{time}</p>
           </div>
         </div>
+        {agg.length > 0 && onToggleReaction && (
+          <div className={`flex flex-wrap gap-1 mt-1 pointer-events-auto ${isMine ? 'justify-end' : 'justify-start'}`}>
+            {agg.map(a => (
+              <button
+                key={a.emoji}
+                type="button"
+                onClick={e => {
+                  e.stopPropagation();
+                  onToggleReaction(a.emoji);
+                }}
+                className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs border transition ${
+                  a.mine ? 'border-accent bg-accent/25 text-white' : 'border-dark-600 bg-dark-800 text-slate-300 hover:bg-dark-700'
+                }`}
+              >
+                <span>{a.emoji}</span>
+                <span className="text-[10px] opacity-80">{a.count}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       {isMine && showAvatar && showSenderNames && (
         <div className="w-9 flex-shrink-0 self-end pointer-events-none">
