@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useChat } from '../contexts/ChatContext';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import { api } from '../lib/api';
 import Sidebar from '../components/Sidebar';
 import ChatView from '../components/ChatView';
@@ -8,18 +9,20 @@ import ProfileModal from '../components/ProfileModal';
 import SearchModal from '../components/SearchModal';
 import CreateGroupModal from '../components/CreateGroupModal';
 import Avatar from '../components/Avatar';
-import { LogOut, UserPlus, Users, Radio, Compass, X, Search } from 'lucide-react';
+import { LogOut, UserPlus, Users, Radio, Compass, X, Search, Bookmark } from 'lucide-react';
 import { User, Conversation } from '../types';
 
 export default function ChatPage() {
   const { user, logout } = useAuth();
   const { active, setActive, refresh } = useChat();
+  const isDesktop = useMediaQuery('(min-width: 768px)');
   const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
   const [profileUser, setProfileUser] = useState<User | null>(null);
   const [drawer, setDrawer] = useState(false);
   const [drawerSearch, setDrawerSearch] = useState(false);
   const [drawerCreate, setDrawerCreate] = useState<'group' | 'channel' | null>(null);
   const [drawerDiscover, setDrawerDiscover] = useState(false);
+  const [listMode, setListMode] = useState<'chats' | 'favorites'>('chats');
 
   const openChat = () => setMobileView('chat');
   const backToList = () => setMobileView('list');
@@ -27,30 +30,48 @@ export default function ChatPage() {
   return (
     <>
       <div className="flex h-[100dvh] bg-dark-900 overflow-hidden">
-        <div className="hidden md:flex w-[340px] lg:w-[400px] flex-shrink-0 border-r border-dark-600">
-          <Sidebar onSelect={openChat} onProfile={setProfileUser} onDrawer={() => setDrawer(true)} isMobile={false} />
-        </div>
-        <div className="hidden md:flex flex-1 flex-col min-w-0">
-          {active ? (
-            <ChatView onBack={backToList} onProfile={setProfileUser} isMobile={false} />
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-slate-500">
-              <h2 className="text-3xl font-bold text-white/10 mb-2">gchat</h2>
-              <p className="text-sm">Выберите чат</p>
+        {isDesktop ? (
+          <>
+            <div className="w-[340px] lg:w-[400px] flex-shrink-0 border-r border-dark-600">
+              <Sidebar
+                onSelect={openChat}
+                onProfile={setProfileUser}
+                onDrawer={() => setDrawer(true)}
+                isMobile={false}
+                listMode={listMode}
+                onListModeChange={setListMode}
+              />
             </div>
-          )}
-        </div>
-        <div className="flex md:hidden w-full">
-          {mobileView === 'list' || !active ? (
-            <div className="w-full flex">
-              <Sidebar onSelect={openChat} onProfile={setProfileUser} onDrawer={() => setDrawer(true)} isMobile={true} />
+            <div className="flex-1 flex flex-col min-w-0 min-h-0">
+              {active ? (
+                <ChatView key={active.id} onBack={backToList} onProfile={setProfileUser} isMobile={false} />
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-slate-500">
+                  <h2 className="text-3xl font-bold text-white/10 mb-2">gchat</h2>
+                  <p className="text-sm">Выберите чат</p>
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="w-full flex flex-col">
-              <ChatView onBack={backToList} onProfile={setProfileUser} isMobile={true} />
-            </div>
-          )}
-        </div>
+          </>
+        ) : (
+          <div className="flex-1 flex flex-col min-w-0 min-h-0 w-full">
+            {mobileView === 'list' || !active ? (
+              <Sidebar
+                onSelect={openChat}
+                onProfile={setProfileUser}
+                onDrawer={() => setDrawer(true)}
+                isMobile={true}
+                listMode={listMode}
+                onListModeChange={m => {
+                  setListMode(m);
+                  setMobileView('list');
+                }}
+              />
+            ) : (
+              <ChatView key={active.id} onBack={backToList} onProfile={setProfileUser} isMobile={true} />
+            )}
+          </div>
+        )}
       </div>
 
       {drawer && (
@@ -70,6 +91,7 @@ export default function ChatPage() {
               <DrawerBtn icon={<Users size={18} />} label="Создать группу" onClick={() => { setDrawer(false); setDrawerCreate('group'); }} />
               <DrawerBtn icon={<Radio size={18} />} label="Создать канал" onClick={() => { setDrawer(false); setDrawerCreate('channel'); }} />
               <DrawerBtn icon={<Compass size={18} />} label="Найти" onClick={() => { setDrawer(false); setDrawerDiscover(true); }} />
+              <DrawerBtn icon={<Bookmark size={18} />} label="Избранное" onClick={() => { setDrawer(false); setListMode('favorites'); setMobileView('list'); }} />
             </div>
             <div className="border-t border-dark-600 p-2">
               <button onClick={() => { setDrawer(false); logout(); }} className="w-full flex items-center gap-3 px-5 py-3 text-red-400 hover:bg-dark-700 rounded-xl transition text-sm"><LogOut size={18} />Выйти</button>

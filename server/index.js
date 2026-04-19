@@ -362,6 +362,9 @@ const MSG_FROM = `FROM messages m
   LEFT JOIN messages rm ON m.reply_to_id = rm.id
   LEFT JOIN users ru ON rm.sender_id = ru.id`;
 
+/** Extra column for GET /messages — ?, первый параметр = текущий user id */
+const MSG_SELECT_SAVED = `, (SELECT 1 FROM saved_messages sv WHERE sv.message_id = m.id AND sv.user_id = ?) AS _is_saved`;
+
 function shapeDbMessage(row, reactionsMap) {
   const reactions = reactionsMap.get(row.id) || [];
   const isChannelConv = row._conv_type === 'channel';
@@ -387,6 +390,9 @@ function shapeDbMessage(row, reactionsMap) {
     channel_avatar: asChannel ? row._conv_avatar : null,
     reactions,
   };
+  if (row._is_saved !== undefined && row._is_saved !== null) {
+    msg.is_saved = !!row._is_saved;
+  }
   if (row.reply_to_id && row._reply_id) {
     msg.reply_preview = {
       id: row._reply_id,
@@ -399,8 +405,10 @@ function shapeDbMessage(row, reactionsMap) {
   return msg;
 }
 
-function hydrateMessageById(messageId) {
-  const row = db.prepare(`SELECT ${MSG_BASE} ${MSG_FROM} WHERE m.id = ?`).get(messageId);
+function hydrateMessageById(messageId, forUserId) {
+  const row = forUserId
+    ? db.prepare(`SELECT ${MSG_BASE}${MSG_SELECT_SAVED} ${MSG_FROM} WHERE m.id = ?`).get(forUserId, messageId)
+    : db.prepare(`SELECT ${MSG_BASE} ${MSG_FROM} WHERE m.id = ?`).get(messageId);
   if (!row) return null;
   const reactMap = fetchReactionsForMessages([messageId]);
   return shapeDbMessage(row, reactMap);
@@ -420,8 +428,8 @@ app.get('/api/messages/:conversationId', auth, (req, res) => {
   const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conversationId, req.user.id);
   if (!member) return res.status(403).json({ error: 'Not a member' });
   const rows = before
-    ? db.prepare(`SELECT ${MSG_BASE} ${MSG_FROM} WHERE m.conversation_id = ? AND m.created_at < ? ORDER BY m.created_at DESC LIMIT ?`).all(conversationId, before, +limit)
-    : db.prepare(`SELECT ${MSG_BASE} ${MSG_FROM} WHERE m.conversation_id = ? ORDER BY m.created_at DESC LIMIT ?`).all(conversationId, +limit);
+    ? db.prepare(`SELECT ${MSG_BASE}${MSG_SELECT_SAVED} ${MSG_FROM} WHERE m.conversation_id = ? AND m.created_at < ? ORDER BY m.created_at DESC LIMIT ?`).all(req.user.id, conversationId, before, +limit)
+    : db.prepare(`SELECT ${MSG_BASE}${MSG_SELECT_SAVED} ${MSG_FROM} WHERE m.conversation_id = ? ORDER BY m.created_at DESC LIMIT ?`).all(req.user.id, conversationId, +limit);
   const ids = rows.map(r => r.id);
   const reactMap = fetchReactionsForMessages(ids);
   const messages = rows.reverse().map(r => shapeDbMessage(r, reactMap));
@@ -473,17 +481,75 @@ app.post('/api/messages', auth, (req, res) => {
       'INSERT INTO messages (id, conversation_id, sender_id, content, type, media_url, reply_to_id, post_as_channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(id, conversationId, req.user.id, content, type, mediaUrl || null, replyToId || null, channelPostFlag);
     db.prepare(`UPDATE conversations SET updated_at = datetime('now') WHERE id = ?`).run(conversationId);
-    const message = hydrateMessageById(id);
+    const message = hydrateMessageById(id, req.user.id);
+    const broadcastPayload = { ...message };
+    delete broadcastPayload.is_saved;
     const members = db.prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ?').all(conversationId);
     members.forEach(({ user_id }) => {
       const sockets = onlineUsers.get(user_id);
-      if (sockets) sockets.forEach(sid => io.to(sid).emit('message:new', message));
+      if (sockets) sockets.forEach(sid => io.to(sid).emit('message:new', broadcastPayload));
     });
     res.json({ message });
   } catch (err) {
     console.error('[API] POST /api/messages error:', err);
     res.status(500).json({ error: err.message || 'Internal server error' });
   }
+});
+
+// ── Saved messages (избранное) ──
+
+app.get('/api/saved', auth, (req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT s.id as save_row_id, s.created_at as saved_at,
+      ${MSG_BASE},
+      1 as _is_saved
+      FROM saved_messages s
+      JOIN messages m ON m.id = s.message_id
+      JOIN users u ON m.sender_id = u.id
+      JOIN conversations c ON c.id = m.conversation_id
+      LEFT JOIN messages rm ON m.reply_to_id = rm.id
+      LEFT JOIN users ru ON rm.sender_id = ru.id
+      WHERE s.user_id = ?
+      ORDER BY s.created_at DESC
+      LIMIT 300
+    `).all(req.user.id);
+    const ids = rows.map(r => r.id);
+    const reactMap = fetchReactionsForMessages(ids);
+    const items = rows.map(r => {
+      const convRaw = db.prepare('SELECT * FROM conversations WHERE id = ?').get(r.conversation_id);
+      const conversation = enrichConversation(convRaw, req.user.id);
+      return {
+        save_id: r.save_row_id,
+        saved_at: r.saved_at,
+        conversation,
+        message: shapeDbMessage(r, reactMap),
+      };
+    });
+    res.json({ items });
+  } catch (err) {
+    console.error('[API] GET /api/saved', err);
+    res.status(500).json({ error: err.message || 'Internal server error' });
+  }
+});
+
+app.post('/api/saved/:messageId', auth, (req, res) => {
+  const msg = db.prepare('SELECT id, conversation_id FROM messages WHERE id = ?').get(req.params.messageId);
+  if (!msg) return res.status(404).json({ error: 'Not found' });
+  const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(msg.conversation_id, req.user.id);
+  if (!member) return res.status(403).json({ error: 'Not a member' });
+  try {
+    db.prepare('INSERT INTO saved_messages (id, user_id, message_id) VALUES (?, ?, ?)').run(uuidv4(), req.user.id, req.params.messageId);
+  } catch (e) {
+    if (String(e.message || '').includes('UNIQUE')) return res.json({ saved: true });
+    throw e;
+  }
+  res.json({ saved: true });
+});
+
+app.delete('/api/saved/:messageId', auth, (req, res) => {
+  db.prepare('DELETE FROM saved_messages WHERE user_id = ? AND message_id = ?').run(req.user.id, req.params.messageId);
+  res.json({ saved: false });
 });
 
 // ── Stories (only from contacts) ──

@@ -1,3 +1,5 @@
+import type { SavedListItem } from '../types';
+
 const BASE = '/api';
 
 function token(): string | null {
@@ -52,6 +54,11 @@ export const api = {
     markRead: (id: string) => req(`/conversations/${id}/read`, { method: 'POST' }),
   },
   discover: (q: string) => req(`/discover?q=${encodeURIComponent(q)}`),
+  saved: {
+    list: (): Promise<{ items: SavedListItem[] }> => req('/saved'),
+    add: (messageId: string) => req(`/saved/${messageId}`, { method: 'POST' }) as Promise<{ saved: boolean }>,
+    remove: (messageId: string) => req(`/saved/${messageId}`, { method: 'DELETE' }) as Promise<{ saved: boolean }>,
+  },
   messages: {
     list: (cid: string, before?: string) => req(`/messages/${cid}${before ? `?before=${before}` : ''}`),
     send: (body: {

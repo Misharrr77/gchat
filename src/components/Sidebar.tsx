@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useChat } from '../contexts/ChatContext';
 import { api } from '../lib/api';
@@ -6,8 +6,8 @@ import Avatar from './Avatar';
 import StoriesBar from './StoriesBar';
 import SearchModal from './SearchModal';
 import CreateGroupModal from './CreateGroupModal';
-import { Menu, MessageSquare, Users, Radio, Plus, Search, Compass } from 'lucide-react';
-import { Conversation, User } from '../types';
+import { Menu, MessageSquare, Users, Radio, Plus, Search, Compass, ChevronLeft, Bookmark } from 'lucide-react';
+import { Conversation, User, SavedListItem } from '../types';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
 
 type Tab = 'direct' | 'group' | 'channel';
@@ -27,25 +27,106 @@ interface Props {
   onProfile: (u: User) => void;
   onDrawer: () => void;
   isMobile: boolean;
+  listMode?: 'chats' | 'favorites';
+  onListModeChange?: (mode: 'chats' | 'favorites') => void;
 }
 
-export default function Sidebar({ onSelect, onProfile, onDrawer, isMobile }: Props) {
+function savedSnippet(msg: SavedListItem['message']) {
+  if (msg.type !== 'text' && msg.media_url)
+    return msg.type === 'image' ? '📷 Фото' : msg.type === 'audio' ? '🎵 Аудио' : '🎬 Видео';
+  const t = (msg.content || '').trim();
+  return t.length > 96 ? `${t.slice(0, 96)}…` : t || '…';
+}
+
+export default function Sidebar({
+  onSelect,
+  onProfile,
+  onDrawer,
+  isMobile,
+  listMode = 'chats',
+  onListModeChange,
+}: Props) {
   const { user } = useAuth();
   const { conversations, active, setActive, stories } = useChat();
   const [tab, setTab] = useState<Tab>('direct');
   const [showSearch, setShowSearch] = useState(false);
   const [showCreate, setShowCreate] = useState<'group' | 'channel' | null>(null);
   const [showDiscover, setShowDiscover] = useState(false);
+  const [savedItems, setSavedItems] = useState<SavedListItem[]>([]);
+  const [savedLoading, setSavedLoading] = useState(false);
 
   const filtered = useMemo(() => conversations.filter(c => c.type === tab), [conversations, tab]);
 
   const handleSelect = (c: Conversation) => { setActive(c); onSelect(c); };
+
+  useEffect(() => {
+    if (listMode !== 'favorites') return;
+    setSavedLoading(true);
+    api.saved
+      .list()
+      .then(d => setSavedItems(d.items))
+      .catch(() => setSavedItems([]))
+      .finally(() => setSavedLoading(false));
+  }, [listMode]);
+
+  const openSavedChat = (item: SavedListItem) => {
+    setActive(item.conversation);
+    onSelect();
+    onListModeChange?.('chats');
+  };
 
   const tabBtn = (t: Tab, icon: React.ReactNode, label: string) => (
     <button onClick={() => setTab(t)} className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition ${tab === t ? 'text-accent border-b-2 border-accent' : 'text-slate-400 hover:text-white border-b-2 border-transparent'}`}>
       {icon}<span className="hidden sm:inline">{label}</span>
     </button>
   );
+
+  if (listMode === 'favorites') {
+    return (
+      <div className="flex flex-col h-full bg-dark-800 w-full">
+        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-dark-600 flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => onListModeChange?.('chats')}
+            className="p-2 hover:bg-dark-700 rounded-xl text-slate-400 hover:text-white transition flex-shrink-0"
+            aria-label="Назад к чатам"
+          >
+            <ChevronLeft size={22} />
+          </button>
+          <h1 className="text-lg font-bold text-white flex-1">Избранное</h1>
+        </div>
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {savedLoading ? (
+            <div className="flex justify-center py-16"><div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" /></div>
+          ) : savedItems.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 px-4 text-slate-500 text-center">
+              <Bookmark size={40} className="text-slate-600 mb-2" />
+              <p className="text-sm">Пока пусто</p>
+              <p className="text-xs mt-2 text-slate-600 max-w-[240px]">Выберите сообщение в чате и нажмите «В избранное» в панели действий.</p>
+            </div>
+          ) : (
+            savedItems.map(item => (
+              <button
+                key={item.save_id}
+                type="button"
+                onClick={() => openSavedChat(item)}
+                className="w-full flex items-start gap-3 px-4 py-3 text-left border-b border-dark-700/60 hover:bg-dark-700/40 transition active:bg-dark-600"
+              >
+                <Avatar src={item.conversation.avatar} name={item.conversation.name || '?'} size={44} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-white truncate">{item.conversation.name}</span>
+                    <span className="text-[10px] text-slate-500 whitespace-nowrap flex-shrink-0">{fmtTime(item.saved_at)}</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1 line-clamp-3">{savedSnippet(item.message)}</p>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full bg-dark-800 w-full">
@@ -59,6 +140,22 @@ export default function Sidebar({ onSelect, onProfile, onDrawer, isMobile }: Pro
         <button onClick={() => tab === 'direct' ? setShowSearch(true) : setShowCreate(tab === 'channel' ? 'channel' : 'group')} className="p-2 hover:bg-dark-700 rounded-xl text-slate-400 hover:text-white transition"><Plus size={18} /></button>
       </div>
 
+      {onListModeChange && (
+        <button
+          type="button"
+          onClick={() => onListModeChange('favorites')}
+          className="w-full flex items-center gap-3 px-4 py-3 text-left border-b border-dark-600/80 hover:bg-dark-700/35 transition"
+        >
+          <div className="w-12 h-12 rounded-full bg-amber-500/15 flex items-center justify-center flex-shrink-0 ring-1 ring-amber-400/25">
+            <Bookmark size={22} className="text-amber-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <span className="text-sm font-semibold text-white">Избранное</span>
+            <p className="text-xs text-slate-500 mt-0.5">Сохранённые сообщения</p>
+          </div>
+        </button>
+      )}
+
       {/* Stories */}
       {tab === 'direct' && stories.length > 0 && <StoriesBar />}
 
@@ -70,7 +167,7 @@ export default function Sidebar({ onSelect, onProfile, onDrawer, isMobile }: Pro
       </div>
 
       {/* Conversations list */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto min-h-0">
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-slate-500">
             <p className="text-sm">{tab === 'direct' ? 'Нет чатов' : tab === 'group' ? 'Нет групп' : 'Нет каналов'}</p>

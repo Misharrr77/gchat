@@ -42,6 +42,7 @@ interface Ctx {
   setActive: (c: Conversation | null) => void;
   sendMessage: (content: string, type?: string, mediaUrl?: string, replyToId?: string | null, postAsChannel?: boolean) => Promise<void>;
   toggleReaction: (messageId: string, emoji: string) => Promise<void>;
+  patchMessage: (messageId: string, patch: Partial<Message>) => void;
   startConversation: (userId: string) => Promise<Conversation>;
   refresh: () => Promise<void>;
   refreshStories: () => Promise<void>;
@@ -360,6 +361,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const patchMessage = useCallback((messageId: string, patch: Partial<Message>) => {
+    setMessages(p => p.map(m => (m.id === messageId ? { ...m, ...patch } : m)));
+  }, []);
+
   const startConversation = useCallback(async (userId: string) => {
     const d = await api.conversations.create(userId);
     setConversations(p => (p.some(c => c.id === d.conversation.id) ? p : [d.conversation, ...p]));
@@ -383,6 +388,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setActive,
         sendMessage,
         toggleReaction,
+        patchMessage,
         startConversation,
         refresh,
         refreshStories,

@@ -67,6 +67,15 @@ export interface Message {
   channel_avatar?: string | null;
   /** 1 канал | 0 от себя | null до явной установки */
   post_as_channel?: number | null;
+  /** Сообщение в избранном (текущий пользователь) */
+  is_saved?: boolean;
+}
+
+export interface SavedListItem {
+  save_id: string;
+  saved_at: string;
+  conversation: Conversation;
+  message: Message;
 }
 
 export interface Story { id: string; user_id: string; type: 'image' | 'video' | 'text'; media_url: string | null; text_content: string | null; bg_color: string; created_at: string; expires_at: string; view_count: number; viewed: number | null; }

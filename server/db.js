@@ -141,4 +141,17 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_msg_reactions_msg ON message_reactions(message_id);
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS saved_messages (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(user_id, message_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_saved_user ON saved_messages(user_id, created_at);
+`);
+
 module.exports = db;
