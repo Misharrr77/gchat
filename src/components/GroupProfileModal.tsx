@@ -149,6 +149,10 @@ export default function GroupProfileModal({
   };
 
   const isChannel = conv.type === 'channel';
+  const isChannelOwner = isChannel && me?.id === conv.creator_id;
+  /** Полный список: группы у всех; в канале только у создателя */
+  const showMemberList = conv.type === 'group' || isChannelOwner;
+  const canManageMembers = conv.type === 'group' ? isAdmin : isChannelOwner;
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
@@ -168,7 +172,17 @@ export default function GroupProfileModal({
               {isChannel ? <Radio size={13} className="text-accent" /> : <Users size={13} className="text-accent" />}
               <h3 className="text-base font-bold text-white truncate drop-shadow-lg">{conv.name}</h3>
             </div>
-            <p className="text-xs text-slate-300 drop-shadow">{conv.member_count} уч. · {conv.is_public ? 'Публичный' : 'Приватный'}</p>
+            <p className={`text-xs drop-shadow ${isChannel && !isChannelOwner ? 'text-slate-400 tabular-nums' : 'text-slate-300'}`}>
+              {isChannel ? (
+                isChannelOwner ? (
+                  <>{conv.member_count} подписчиков · {conv.is_public ? 'Публичный' : 'Приватный'}</>
+                ) : (
+                  conv.member_count
+                )
+              ) : (
+                <>{conv.member_count} уч. · {conv.is_public ? 'Публичный' : 'Приватный'}</>
+              )}
+            </p>
           </div>
           {isAdmin && <button onClick={() => setEditing(!editing)} className="p-2 hover:bg-dark-700 rounded-lg text-slate-400 hover:text-white transition mb-1 flex-shrink-0"><Edit3 size={15} /></button>}
         </div>
@@ -315,55 +329,57 @@ export default function GroupProfileModal({
                 </div>
               )}
 
-              <>
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-sm font-medium text-slate-300">
-                    {isChannel ? 'Подписчики' : 'Участники'} ({conv.member_count})
-                  </h4>
-                  {isAdmin && <button onClick={() => setAddingMembers(!addingMembers)} className="p-1.5 hover:bg-dark-700 rounded-lg text-accent"><UserPlus size={16} /></button>}
-                </div>
-                {addingMembers && isAdmin && (
-                  <div className="mb-4">
-                    <div className="relative mb-2">
-                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-                      <input value={searchQuery} onChange={e => searchUsers(e.target.value)} placeholder="Найти по имени..." className="w-full pl-8 pr-3 py-2 bg-dark-700 border border-dark-600 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent" autoFocus />
+              {showMemberList && (
+                <>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-medium text-slate-300">
+                      {isChannel ? 'Подписчики' : 'Участники'} ({conv.member_count})
+                    </h4>
+                    {canManageMembers && <button onClick={() => setAddingMembers(!addingMembers)} className="p-1.5 hover:bg-dark-700 rounded-lg text-accent"><UserPlus size={16} /></button>}
+                  </div>
+                  {addingMembers && canManageMembers && (
+                    <div className="mb-4">
+                      <div className="relative mb-2">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                        <input value={searchQuery} onChange={e => searchUsers(e.target.value)} placeholder="Найти по имени..." className="w-full pl-8 pr-3 py-2 bg-dark-700 border border-dark-600 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent" autoFocus />
+                      </div>
+                      {searchResults.map(u => (
+                        <div key={u.id} className="flex items-center gap-2 py-1.5">
+                          <Avatar src={u.avatar} name={u.display_name || u.username} size={32} />
+                          <span className="text-sm text-white flex-1 truncate">{u.display_name || u.username}</span>
+                          <button onClick={() => addMember(u.id)} className="px-2 py-1 bg-accent/20 text-accent text-xs rounded-lg hover:bg-accent/30">Добавить</button>
+                        </div>
+                      ))}
                     </div>
-                    {searchResults.map(u => (
-                      <div key={u.id} className="flex items-center gap-2 py-1.5">
-                        <Avatar src={u.avatar} name={u.display_name || u.username} size={32} />
-                        <span className="text-sm text-white flex-1 truncate">{u.display_name || u.username}</span>
-                        <button onClick={() => addMember(u.id)} className="px-2 py-1 bg-accent/20 text-accent text-xs rounded-lg hover:bg-accent/30">Добавить</button>
+                  )}
+                  <div className="space-y-0.5">
+                    {conv.members?.map(m => (
+                      <div
+                        key={m.id}
+                        role={onOpenMemberProfile ? 'button' : undefined}
+                        onClick={onOpenMemberProfile ? () => onOpenMemberProfile(m) : undefined}
+                        className={`flex items-center gap-3 py-2 px-2 rounded-xl hover:bg-dark-700/50 ${onOpenMemberProfile ? 'cursor-pointer' : ''}`}
+                      >
+                        <Avatar src={m.avatar} videoSrc={m.video_avatar} name={m.display_name || m.username} size={36} online={m.is_online === 1} />
+                        <div className="flex-1 min-w-0 text-left">
+                          <p className="text-sm text-white truncate">{m.display_name || m.username}</p>
+                          <p className="text-xs text-slate-400">@{m.username}</p>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                          {conv.creator_id === m.id && <Crown size={13} className="text-yellow-400" />}
+                          {m.role === 'admin' && conv.creator_id !== m.id && <Shield size={13} className="text-accent" />}
+                          {canManageMembers && m.id !== me?.id && (
+                            <>
+                              <button type="button" onClick={() => setRole(m.id, m.role !== 'admin' ? 'admin' : 'member')} className="p-1 hover:bg-dark-600 rounded text-slate-500 hover:text-accent transition"><Shield size={13} /></button>
+                              <button type="button" onClick={() => removeMember(m.id)} className="p-1 hover:bg-dark-600 rounded text-slate-500 hover:text-red-400 transition"><UserMinus size={13} /></button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
-                )}
-                <div className="space-y-0.5">
-                  {conv.members?.map(m => (
-                    <div
-                      key={m.id}
-                      role={onOpenMemberProfile ? 'button' : undefined}
-                      onClick={onOpenMemberProfile ? () => onOpenMemberProfile(m) : undefined}
-                      className={`flex items-center gap-3 py-2 px-2 rounded-xl hover:bg-dark-700/50 ${onOpenMemberProfile ? 'cursor-pointer' : ''}`}
-                    >
-                      <Avatar src={m.avatar} videoSrc={m.video_avatar} name={m.display_name || m.username} size={36} online={m.is_online === 1} />
-                      <div className="flex-1 min-w-0 text-left">
-                        <p className="text-sm text-white truncate">{m.display_name || m.username}</p>
-                        <p className="text-xs text-slate-400">@{m.username}</p>
-                      </div>
-                      <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                        {conv.creator_id === m.id && <Crown size={13} className="text-yellow-400" />}
-                        {m.role === 'admin' && conv.creator_id !== m.id && <Shield size={13} className="text-accent" />}
-                        {isAdmin && m.id !== me?.id && (
-                          <>
-                            <button type="button" onClick={() => setRole(m.id, m.role !== 'admin' ? 'admin' : 'member')} className="p-1 hover:bg-dark-600 rounded text-slate-500 hover:text-accent transition"><Shield size={13} /></button>
-                            <button type="button" onClick={() => removeMember(m.id)} className="p-1 hover:bg-dark-600 rounded text-slate-500 hover:text-red-400 transition"><UserMinus size={13} /></button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
+                </>
+              )}
               <button onClick={leaveGroup} className="mt-5 w-full py-2.5 border border-red-500/30 text-red-400 text-sm rounded-xl hover:bg-red-500/10 transition flex items-center justify-center gap-2">
                 <LogOut size={15} />Покинуть
               </button>

@@ -95,6 +95,7 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
   const isChannel = active.type === 'channel';
   const isGroup = active.type === 'group';
   const isDirect = active.type === 'direct';
+  const isChannelOwner = isChannel && me?.id === active.creator_id;
   const myRole = active.members?.find(m => m.id === me?.id)?.role;
   const canWrite = !isChannel || myRole === 'admin';
   const canPin = isDirect || myRole === 'admin';
@@ -123,7 +124,14 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
       return <span className="text-accent truncate block max-w-[200px] sm:max-w-md">{t}</span>;
     }
     if (isDirect) return <span className={isOnline ? 'text-green-400' : 'text-slate-500'}>{isOnline ? 'в сети' : 'не в сети'}</span>;
-    return <span className="text-slate-400">{active.member_count} участник(ов)</span>;
+    if (isChannel && !isChannelOwner) {
+      return <span className="text-slate-400 tabular-nums">{active.member_count}</span>;
+    }
+    return (
+      <span className="text-slate-400">
+        {active.member_count} {isChannel ? 'подписчиков' : 'участник(ов)'}
+      </span>
+    );
   };
 
   const onHeaderClick = () => {

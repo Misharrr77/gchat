@@ -420,7 +420,11 @@ app.put('/api/conversations/:id/members/:userId/role', auth, (req, res) => {
   const conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(req.params.id);
   if (!conv) return res.status(404).json({ error: 'Not found' });
   const myRole = db.prepare('SELECT role FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conv.id, req.user.id);
-  if (!myRole || myRole.role !== 'admin') return res.status(403).json({ error: 'Только админ' });
+  if (conv.type === 'channel') {
+    if (req.user.id !== conv.creator_id) return res.status(403).json({ error: 'Только владелец' });
+  } else if (!myRole || myRole.role !== 'admin') {
+    return res.status(403).json({ error: 'Только админ' });
+  }
   db.prepare('UPDATE conversation_members SET role = ? WHERE conversation_id = ? AND user_id = ?').run(role, conv.id, req.params.userId);
   res.json({ ok: true });
 });
@@ -430,7 +434,13 @@ app.delete('/api/conversations/:id/members/:userId', auth, (req, res) => {
   if (!conv) return res.status(404).json({ error: 'Not found' });
   const myRole = db.prepare('SELECT role FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conv.id, req.user.id);
   const isSelf = req.params.userId === req.user.id;
-  if (!isSelf && (!myRole || myRole.role === 'member')) return res.status(403).json({ error: 'Нет прав' });
+  if (!isSelf) {
+    if (conv.type === 'channel') {
+      if (req.user.id !== conv.creator_id) return res.status(403).json({ error: 'Нет прав' });
+    } else if (!myRole || myRole.role === 'member') {
+      return res.status(403).json({ error: 'Нет прав' });
+    }
+  }
   db.prepare('DELETE FROM conversation_members WHERE conversation_id = ? AND user_id = ?').run(conv.id, req.params.userId);
   if (isSelf) {
     const socks = onlineUsers.get(req.user.id);
@@ -452,7 +462,11 @@ app.post('/api/conversations/:id/members', auth, (req, res) => {
   const conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(req.params.id);
   if (!conv || conv.type === 'direct') return res.status(400).json({ error: 'Нельзя' });
   const myRole = db.prepare('SELECT role FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conv.id, req.user.id);
-  if (!myRole || myRole.role !== 'admin') return res.status(403).json({ error: 'Только админ' });
+  if (conv.type === 'channel') {
+    if (req.user.id !== conv.creator_id) return res.status(403).json({ error: 'Только владелец' });
+  } else if (!myRole || myRole.role !== 'admin') {
+    return res.status(403).json({ error: 'Только админ' });
+  }
   db.transaction(() => {
     for (const uid of userIds) { try { db.prepare('INSERT INTO conversation_members (conversation_id, user_id, role) VALUES (?, ?, ?)').run(conv.id, uid, 'member'); } catch {} }
   })();
