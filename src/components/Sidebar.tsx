@@ -88,7 +88,14 @@ export default function Sidebar({ onSelect, onProfile, onDrawer, isMobile }: Pro
                   {c.type === 'group' && <Users size={12} className="text-accent flex-shrink-0" />}
                   <span className="text-sm font-medium text-white truncate">{c.name}</span>
                 </div>
-                <span className="text-[10px] text-slate-500 flex-shrink-0 whitespace-nowrap">{fmtTime(c.last_message_at)}</span>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {(c.unread_count ?? 0) > 0 && (
+                    <span className="min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-accent text-[10px] font-bold text-white leading-none">
+                      {(c.unread_count ?? 0) > 99 ? '99+' : c.unread_count}
+                    </span>
+                  )}
+                  <span className="text-[10px] text-slate-500 whitespace-nowrap">{fmtTime(c.last_message_at)}</span>
+                </div>
               </div>
               <p className="text-xs text-slate-400 truncate mt-0.5">
                 {c.last_message

@@ -12,7 +12,7 @@ interface Props { onBack: () => void; onProfile: (u: User) => void; isMobile: bo
 
 export default function ChatView({ onBack, onProfile, isMobile }: Props) {
   const { user: me } = useAuth();
-  const { active, messages, loadingMsgs, typingUsers, onlineUsers, socketOk } = useChat();
+  const { active, messages, loadingMsgs, typingUsers, onlineUsers } = useChat();
   const endRef = useRef<HTMLDivElement>(null);
   const [imgPreview, setImgPreview] = useState<string | null>(null);
   const [showGroupProfile, setShowGroupProfile] = useState(false);
@@ -23,18 +23,36 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
 
   const other = active.otherUser;
   const isOnline = other ? (onlineUsers.has(other.id) || other.is_online === 1) : false;
-  const isTyping = (typingUsers.get(active.id)?.size ?? 0) > 0;
+  const typingIds = Array.from(typingUsers.get(active.id) || []);
+  const isTyping = typingIds.length > 0;
   const isChannel = active.type === 'channel';
   const isGroup = active.type === 'group';
   const isDirect = active.type === 'direct';
   const myRole = active.members?.find(m => m.id === me?.id)?.role;
   const canWrite = !isChannel || myRole === 'admin';
 
+  const nameForTypingId = (id: string) => {
+    if (other && id === other.id) return other.display_name || other.username;
+    const m = active.members?.find(x => x.id === id);
+    return m?.display_name || m?.username || '…';
+  };
+  const typingNames = typingIds.map(nameForTypingId).filter(Boolean);
+
   const subtitle = () => {
-    if (isTyping) return <span className="text-accent">печатает...</span>;
+    if (isTyping) {
+      const t =
+        typingNames.length === 1
+          ? `${typingNames[0]} печатает…`
+          : typingNames.length > 1
+            ? `${typingNames.slice(0, 3).join(', ')}${typingNames.length > 3 ? '…' : ''} печатают…`
+            : 'печатает…';
+      return <span className="text-accent truncate block max-w-[200px] sm:max-w-md">{t}</span>;
+    }
     if (isDirect) return <span className={isOnline ? 'text-green-400' : 'text-slate-500'}>{isOnline ? 'в сети' : 'не в сети'}</span>;
     return <span className="text-slate-400">{active.member_count} участник(ов)</span>;
   };
+
+  const channelBrand = isChannel ? { name: active.name || 'Канал', avatar: active.avatar } : undefined;
 
   const onHeaderClick = () => {
     if (isDirect && other) onProfile(other);
@@ -73,7 +91,14 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
         ) : messages.length === 0 ? (
           <div className="flex items-center justify-center h-full"><p className="text-slate-500 text-sm">{isChannel ? 'Нет публикаций' : 'Нет сообщений'}</p></div>
         ) : messages.map((msg, i) => (
-          <MessageBubble key={msg.id} message={msg} showAvatar={!i || messages[i - 1].sender_id !== msg.sender_id} onImageClick={setImgPreview} isGroup={isGroup || isChannel} />
+          <MessageBubble
+            key={msg.id}
+            message={msg}
+            showAvatar={!i || messages[i - 1].sender_id !== msg.sender_id}
+            onImageClick={setImgPreview}
+            isGroup={isGroup || isChannel}
+            channelBranding={channelBrand}
+          />
         ))}
         <div ref={endRef} />
       </div>
@@ -90,7 +115,16 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
         </div>
       )}
 
-      {showGroupProfile && <GroupProfileModal conversation={active} onClose={() => setShowGroupProfile(false)} />}
+      {showGroupProfile && (
+        <GroupProfileModal
+          conversation={active}
+          onClose={() => setShowGroupProfile(false)}
+          onOpenMemberProfile={(u) => {
+            setShowGroupProfile(false);
+            onProfile(u);
+          }}
+        />
+      )}
     </div>
   );
 }

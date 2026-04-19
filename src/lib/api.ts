@@ -49,6 +49,7 @@ export const api = {
       req(`/conversations/${convId}/members/${userId}/role`, { method: 'PUT', body: JSON.stringify({ role }) }),
     removeMember: (convId: string, userId: string) =>
       req(`/conversations/${convId}/members/${userId}`, { method: 'DELETE' }),
+    markRead: (id: string) => req(`/conversations/${id}/read`, { method: 'POST' }),
   },
   discover: (q: string) => req(`/discover?q=${encodeURIComponent(q)}`),
   messages: {

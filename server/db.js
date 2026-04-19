@@ -108,6 +108,15 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_stories_user ON stories(user_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_albums_user ON albums(user_id);
   CREATE INDEX IF NOT EXISTS idx_music_user ON profile_music(user_id);
+
+  CREATE TABLE IF NOT EXISTS conversation_reads (
+    user_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    last_read_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, conversation_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+  );
 `);
 
 const migrate = (table, col, def) => {

@@ -39,6 +39,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const activeRef = useRef<Conversation | null>(null);
   const userIdRef = useRef<string | null>(null);
   const messagesRef = useRef<Message[]>([]);
+  const typingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   useEffect(() => { activeRef.current = active; }, [active]);
   useEffect(() => { userIdRef.current = user?.id || null; }, [user?.id]);
@@ -75,6 +76,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     socket.off('conversation:removed');
     socket.off('user:online');
     socket.off('user:typing');
+    socket.off('user:typing:stop');
     socket.off('story:new');
 
     socket.on('connect', () => {
@@ -90,11 +92,22 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     socket.on('message:new', (msg: Message) => {
       console.log('[GChat] message:new received:', msg.id, 'for conv:', msg.conversation_id);
 
-      // Always update conversation list
+      // Always update conversation list + unread
+      const viewing = activeRef.current?.id === msg.conversation_id;
+      const fromOther = msg.sender_id !== userIdRef.current;
       setConversations(p => {
-        const u = p.map(c => c.id === msg.conversation_id
-          ? { ...c, last_message: msg.content, last_message_type: msg.type, last_message_at: msg.created_at, last_message_sender_id: msg.sender_id }
-          : c);
+        const u = p.map(c => {
+          if (c.id !== msg.conversation_id) return c;
+          const unread = viewing ? 0 : (c.unread_count || 0) + (fromOther ? 1 : 0);
+          return {
+            ...c,
+            last_message: msg.content,
+            last_message_type: msg.type,
+            last_message_at: msg.created_at,
+            last_message_sender_id: msg.sender_id,
+            unread_count: unread,
+          };
+        });
         return u.sort((a, b) => new Date(b.last_message_at || b.created_at).getTime() - new Date(a.last_message_at || a.created_at).getTime());
       });
 
@@ -104,6 +117,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           if (p.some(m => m.id === msg.id)) return p;
           return [...p, msg];
         });
+        api.conversations.markRead(msg.conversation_id).catch(() => {});
       }
 
       // Sound for messages from others
@@ -127,12 +141,35 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     });
 
     socket.on('user:typing', ({ conversationId, userId }: { conversationId: string; userId: string }) => {
+      const key = `${conversationId}:${userId}`;
+      const prev = typingTimeoutsRef.current.get(key);
+      if (prev) clearTimeout(prev);
       setTypingUsers(p => {
         const n = new Map(p);
         if (!n.has(conversationId)) n.set(conversationId, new Set());
         n.get(conversationId)!.add(userId);
-        setTimeout(() => setTypingUsers(pp => { const nn = new Map(pp); nn.get(conversationId)?.delete(userId); return nn; }), 3000);
         return n;
+      });
+      const t = setTimeout(() => {
+        typingTimeoutsRef.current.delete(key);
+        setTypingUsers(pp => {
+          const nn = new Map(pp);
+          nn.get(conversationId)?.delete(userId);
+          return nn;
+        });
+      }, 7000);
+      typingTimeoutsRef.current.set(key, t);
+    });
+
+    socket.on('user:typing:stop', ({ conversationId, userId }: { conversationId: string; userId: string }) => {
+      const key = `${conversationId}:${userId}`;
+      const prev = typingTimeoutsRef.current.get(key);
+      if (prev) clearTimeout(prev);
+      typingTimeoutsRef.current.delete(key);
+      setTypingUsers(pp => {
+        const nn = new Map(pp);
+        nn.get(conversationId)?.delete(userId);
+        return nn;
       });
     });
 
@@ -142,6 +179,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     refreshStories();
 
     return () => {
+      typingTimeoutsRef.current.forEach(t => clearTimeout(t));
+      typingTimeoutsRef.current.clear();
       socket.off('connect');
       socket.off('disconnect');
       socket.off('message:new');
@@ -149,9 +188,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       socket.off('conversation:removed');
       socket.off('user:online');
       socket.off('user:typing');
+      socket.off('user:typing:stop');
       socket.off('story:new');
     };
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!active?.id || !user?.id) return;
+    let cancelled = false;
+    api.conversations.markRead(active.id).then(() => {
+      if (cancelled) return;
+      setConversations(p => p.map(c => (c.id === active.id ? { ...c, unread_count: 0 } : c)));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [active?.id, user?.id]);
 
   // Fallback polling: if socket is down, poll for messages every 4s
   useEffect(() => {

@@ -154,6 +154,7 @@ function enrichConversation(conv, userId) {
 
 app.get('/api/conversations', auth, (req, res) => {
   const { type } = req.query;
+  const uid = req.user.id;
   let tw = '';
   if (type === 'group') tw = "AND c.type = 'group'";
   else if (type === 'channel') tw = "AND c.type = 'channel'";
@@ -163,12 +164,33 @@ app.get('/api/conversations', auth, (req, res) => {
       (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message,
       (SELECT type FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_type,
       (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_at,
-      (SELECT sender_id FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_sender_id
+      (SELECT sender_id FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_sender_id,
+      (SELECT COUNT(*) FROM messages m
+        WHERE m.conversation_id = c.id
+        AND m.sender_id != ?
+        AND m.created_at > COALESCE(
+          (SELECT last_read_at FROM conversation_reads WHERE conversation_id = c.id AND user_id = ?),
+          (SELECT joined_at FROM conversation_members WHERE conversation_id = c.id AND user_id = ?),
+          '1970-01-01'
+        )
+      ) as unread_count
     FROM conversations c JOIN conversation_members cm ON c.id = cm.conversation_id
     WHERE cm.user_id = ? ${tw}
     ORDER BY COALESCE((SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1), c.created_at) DESC
-  `).all(req.user.id);
+  `).all(uid, uid, uid, uid);
   res.json({ conversations: rows.map(c => enrichConversation(c, req.user.id)) });
+});
+
+app.post('/api/conversations/:id/read', auth, (req, res) => {
+  const cid = req.params.id;
+  const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(cid, req.user.id);
+  if (!member) return res.status(403).json({ error: 'Not a member' });
+  const latest = db.prepare(`SELECT COALESCE(MAX(created_at), datetime('now')) as t FROM messages WHERE conversation_id = ?`).get(cid);
+  db.prepare(`
+    INSERT INTO conversation_reads (user_id, conversation_id, last_read_at) VALUES (?, ?, ?)
+    ON CONFLICT(user_id, conversation_id) DO UPDATE SET last_read_at = excluded.last_read_at
+  `).run(req.user.id, cid, latest.t);
+  res.json({ ok: true });
 });
 
 app.post('/api/conversations', auth, (req, res) => {
@@ -443,10 +465,20 @@ io.on('connection', (socket) => {
   io.emit('user:online', { userId: uid, online: true });
 
   socket.on('typing', ({ conversationId }) => {
+    if (!conversationId) return;
     const members = db.prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ? AND user_id != ?').all(conversationId, uid);
     members.forEach(({ user_id }) => {
       const socks = onlineUsers.get(user_id);
       if (socks) socks.forEach(sid => io.to(sid).emit('user:typing', { conversationId, userId: uid }));
+    });
+  });
+
+  socket.on('typing:stop', ({ conversationId }) => {
+    if (!conversationId) return;
+    const members = db.prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ? AND user_id != ?').all(conversationId, uid);
+    members.forEach(({ user_id }) => {
+      const socks = onlineUsers.get(user_id);
+      if (socks) socks.forEach(sid => io.to(sid).emit('user:typing:stop', { conversationId, userId: uid }));
     });
   });
 
@@ -469,20 +501,6 @@ app.get('/api/health', (req, res) => {
     res.json({ ok: true, users: count.c, uptime: process.uptime() });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
-app.get('/api/debug/test-msg', auth, (req, res) => {
-  try {
-    const conv = db.prepare('SELECT conversation_id FROM conversation_members WHERE user_id = ? LIMIT 1').get(req.user.id);
-    if (!conv) return res.json({ ok: false, error: 'no conversation' });
-    const id = uuidv4();
-    db.prepare('INSERT INTO messages (id, conversation_id, sender_id, content, type) VALUES (?, ?, ?, ?, ?)').run(id, conv.conversation_id, req.user.id, 'debug-test', 'text');
-    const msg = db.prepare('SELECT * FROM messages WHERE id = ?').get(id);
-    db.prepare('DELETE FROM messages WHERE id = ?').run(id);
-    res.json({ ok: true, msg });
-  } catch (err) {
-    res.json({ ok: false, error: err.message, stack: err.stack });
   }
 });
 

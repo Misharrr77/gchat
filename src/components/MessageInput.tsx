@@ -1,8 +1,10 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useChat } from '../contexts/ChatContext';
 import { api } from '../lib/api';
 import { getSocket } from '../lib/socket';
 import { Send, Paperclip, Image, Music, Video, X } from 'lucide-react';
+
+const HEARTBEAT_MS = 2200;
 
 export default function MessageInput() {
   const { active, sendMessage } = useChat();
@@ -13,18 +15,54 @@ export default function MessageInput() {
   const imgRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLInputElement>(null);
   const vidRef = useRef<HTMLInputElement>(null);
-  const typingTimer = useRef<NodeJS.Timeout>();
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const throttleRef = useRef<number>(0);
 
-  const handleTyping = useCallback(() => {
-    if (!active) return;
-    const s = getSocket();
-    if (!s) return;
-    if (!typingTimer.current) {
-      s.emit('typing', { conversationId: active.id });
+  const stopTyping = useCallback(() => {
+    if (heartbeatRef.current) {
+      clearInterval(heartbeatRef.current);
+      heartbeatRef.current = null;
     }
-    clearTimeout(typingTimer.current);
-    typingTimer.current = setTimeout(() => { typingTimer.current = undefined; }, 2000);
+    const s = getSocket();
+    if (s && active) s.emit('typing:stop', { conversationId: active.id });
   }, [active?.id]);
+
+  const startTypingHeartbeat = useCallback(() => {
+    const s = getSocket();
+    if (!s || !active) return;
+    const pulse = () => {
+      s.emit('typing', { conversationId: active.id });
+    };
+    pulse();
+    if (heartbeatRef.current) clearInterval(heartbeatRef.current);
+    heartbeatRef.current = setInterval(pulse, HEARTBEAT_MS);
+  }, [active?.id]);
+
+  useEffect(() => {
+    return () => {
+      stopTyping();
+    };
+  }, [stopTyping]);
+
+  useEffect(() => {
+    stopTyping();
+  }, [active?.id, stopTyping]);
+
+  const handleChange = (v: string) => {
+    setText(v);
+    if (!active) return;
+    const now = Date.now();
+    if (now - throttleRef.current > 400) {
+      throttleRef.current = now;
+      const s = getSocket();
+      if (s) s.emit('typing', { conversationId: active.id });
+    }
+    if (v.trim()) {
+      if (!heartbeatRef.current) startTypingHeartbeat();
+    } else {
+      stopTyping();
+    }
+  };
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>, type: string) => {
     const f = e.target.files?.[0];
@@ -36,6 +74,7 @@ export default function MessageInput() {
   const submit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!active || (!text.trim() && !preview) || sending) return;
+    stopTyping();
     setSending(true);
     try {
       if (preview) {
@@ -59,7 +98,7 @@ export default function MessageInput() {
             {preview.type === 'image' && <img src={preview.url} className="w-16 h-16 object-cover rounded-lg" />}
             {preview.type === 'audio' && <div className="w-16 h-16 bg-dark-700 rounded-lg flex items-center justify-center"><Music size={20} className="text-accent" /></div>}
             {preview.type === 'video' && <video src={preview.url} className="w-16 h-16 object-cover rounded-lg" />}
-            <button onClick={() => { URL.revokeObjectURL(preview.url); setPreview(null); }} className="absolute -top-1.5 -right-1.5 p-0.5 bg-dark-600 rounded-full text-white hover:text-red-400"><X size={12} /></button>
+            <button type="button" onClick={() => { URL.revokeObjectURL(preview.url); setPreview(null); }} className="absolute -top-1.5 -right-1.5 p-0.5 bg-dark-600 rounded-full text-white hover:text-red-400"><X size={12} /></button>
           </div>
           <p className="text-xs text-slate-400 truncate">{preview.file.name}</p>
         </div>
@@ -78,7 +117,14 @@ export default function MessageInput() {
         <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={e => handleFile(e, 'image')} />
         <input ref={audioRef} type="file" accept="audio/*" className="hidden" onChange={e => handleFile(e, 'audio')} />
         <input ref={vidRef} type="file" accept="video/*" className="hidden" onChange={e => handleFile(e, 'video')} />
-        <input value={text} onChange={e => { setText(e.target.value); handleTyping(); }} placeholder="Сообщение..." className="flex-1 px-4 py-2 bg-dark-700 border border-dark-600 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent transition" />
+        <input
+          value={text}
+          onChange={e => handleChange(e.target.value)}
+          onBlur={() => { stopTyping(); }}
+          onFocus={() => { if (text.trim()) startTypingHeartbeat(); }}
+          placeholder="Сообщение..."
+          className="flex-1 px-4 py-2 bg-dark-700 border border-dark-600 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent transition"
+        />
         <button type="submit" disabled={(!text.trim() && !preview) || sending} className="p-2 bg-accent hover:bg-accent-hover rounded-xl text-white transition disabled:opacity-30 disabled:cursor-not-allowed">
           <Send size={18} />
         </button>

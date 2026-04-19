@@ -6,7 +6,15 @@ import Avatar from './Avatar';
 import { X, Edit3, Camera, Users, Radio, Shield, UserMinus, UserPlus, LogOut, Loader, Search, Crown } from 'lucide-react';
 import { Conversation, User } from '../types';
 
-export default function GroupProfileModal({ conversation: conv, onClose }: { conversation: Conversation; onClose: () => void }) {
+export default function GroupProfileModal({
+  conversation: conv,
+  onClose,
+  onOpenMemberProfile,
+}: {
+  conversation: Conversation;
+  onClose: () => void;
+  onOpenMemberProfile?: (u: User) => void;
+}) {
   const { user: me } = useAuth();
   const { refresh, setActive } = useChat();
   const myRole = conv.members?.find(m => m.id === me?.id)?.role;
@@ -117,19 +125,24 @@ export default function GroupProfileModal({ conversation: conv, onClose }: { con
               )}
               <div className="space-y-0.5">
                 {conv.members?.map(m => (
-                  <div key={m.id} className="flex items-center gap-3 py-2 px-2 rounded-xl hover:bg-dark-700/50">
-                    <Avatar src={m.avatar} name={m.display_name || m.username} size={36} online={m.is_online === 1} />
-                    <div className="flex-1 min-w-0">
+                  <div
+                    key={m.id}
+                    role={onOpenMemberProfile ? 'button' : undefined}
+                    onClick={onOpenMemberProfile ? () => onOpenMemberProfile(m) : undefined}
+                    className={`flex items-center gap-3 py-2 px-2 rounded-xl hover:bg-dark-700/50 ${onOpenMemberProfile ? 'cursor-pointer' : ''}`}
+                  >
+                    <Avatar src={m.avatar} videoSrc={m.video_avatar} name={m.display_name || m.username} size={36} online={m.is_online === 1} />
+                    <div className="flex-1 min-w-0 text-left">
                       <p className="text-sm text-white truncate">{m.display_name || m.username}</p>
                       <p className="text-xs text-slate-400">@{m.username}</p>
                     </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
+                    <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
                       {conv.creator_id === m.id && <Crown size={13} className="text-yellow-400" />}
                       {m.role === 'admin' && conv.creator_id !== m.id && <Shield size={13} className="text-accent" />}
                       {isAdmin && m.id !== me?.id && (
                         <>
-                          <button onClick={() => setRole(m.id, m.role !== 'admin' ? 'admin' : 'member')} className="p-1 hover:bg-dark-600 rounded text-slate-500 hover:text-accent transition"><Shield size={13} /></button>
-                          <button onClick={() => removeMember(m.id)} className="p-1 hover:bg-dark-600 rounded text-slate-500 hover:text-red-400 transition"><UserMinus size={13} /></button>
+                          <button type="button" onClick={() => setRole(m.id, m.role !== 'admin' ? 'admin' : 'member')} className="p-1 hover:bg-dark-600 rounded text-slate-500 hover:text-accent transition"><Shield size={13} /></button>
+                          <button type="button" onClick={() => removeMember(m.id)} className="p-1 hover:bg-dark-600 rounded text-slate-500 hover:text-red-400 transition"><UserMinus size={13} /></button>
                         </>
                       )}
                     </div>

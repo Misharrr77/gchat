@@ -8,22 +8,32 @@ interface Props {
   showAvatar: boolean;
   onImageClick: (url: string) => void;
   isGroup?: boolean;
+  /** В канале показываем пост от имени канала */
+  channelBranding?: { name: string; avatar: string | null };
 }
 
-export default function MessageBubble({ message, showAvatar, onImageClick, isGroup }: Props) {
+export default function MessageBubble({ message, showAvatar, onImageClick, isGroup, channelBranding }: Props) {
   const { user } = useAuth();
   const isMine = message.sender_id === user?.id;
   const time = (() => { try { return format(parseISO(message.created_at), 'HH:mm'); } catch { return ''; } })();
+
+  const displayName = channelBranding ? channelBranding.name : (message.sender_display_name || message.sender_username);
+  const displayAvatar = channelBranding ? channelBranding.avatar : message.sender_avatar;
 
   return (
     <div className={`flex gap-2 ${isMine ? 'justify-end' : ''} ${showAvatar ? 'mt-3' : 'mt-0.5'}`}>
       {!isMine && (
         <div className="w-8 flex-shrink-0">
-          {showAvatar && <Avatar src={message.sender_avatar} name={message.sender_display_name || message.sender_username} size={32} />}
+          {showAvatar && <Avatar src={displayAvatar} name={displayName} size={32} />}
         </div>
       )}
       <div className={`max-w-[75%] min-w-[80px] ${isMine ? 'order-1' : ''}`}>
-        {showAvatar && !isMine && isGroup && <p className="text-xs text-accent mb-0.5 pl-1">{message.sender_display_name || message.sender_username}</p>}
+        {showAvatar && !isMine && (isGroup || channelBranding) && (
+          <p className="text-xs text-accent mb-0.5 pl-1 truncate">{displayName}</p>
+        )}
+        {showAvatar && isMine && channelBranding && (
+          <p className="text-xs text-accent mb-0.5 pr-1 text-right truncate">{displayName}</p>
+        )}
         <div className={`rounded-2xl px-3 py-2 ${isMine ? 'bg-accent text-white rounded-br-md' : 'bg-dark-700 text-slate-100 rounded-bl-md'}`}>
           {message.type === 'image' && message.media_url && (
             <img src={message.media_url} alt="" className="rounded-lg max-w-full max-h-64 object-cover mb-1 cursor-pointer" onClick={() => onImageClick(message.media_url!)} />
@@ -38,6 +48,11 @@ export default function MessageBubble({ message, showAvatar, onImageClick, isGro
           <p className={`text-[10px] mt-0.5 text-right ${isMine ? 'text-white/50' : 'text-slate-500'}`}>{time}</p>
         </div>
       </div>
+      {isMine && channelBranding && showAvatar && (
+        <div className="w-8 flex-shrink-0 self-end">
+          <Avatar src={channelBranding.avatar} name={channelBranding.name} size={32} />
+        </div>
+      )}
     </div>
   );
 }
