@@ -451,6 +451,8 @@ app.post('/api/conversations/:id/members', auth, (req, res) => {
   const { userIds } = req.body;
   const conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(req.params.id);
   if (!conv || conv.type === 'direct') return res.status(400).json({ error: 'Нельзя' });
+  const myRole = db.prepare('SELECT role FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conv.id, req.user.id);
+  if (!myRole || myRole.role !== 'admin') return res.status(403).json({ error: 'Только админ' });
   db.transaction(() => {
     for (const uid of userIds) { try { db.prepare('INSERT INTO conversation_members (conversation_id, user_id, role) VALUES (?, ?, ?)').run(conv.id, uid, 'member'); } catch {} }
   })();
