@@ -8,6 +8,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
+const { uploadsDir } = require('./paths');
 const db = require('./db');
 
 const app = express();
@@ -36,8 +37,6 @@ app.use((req, res, next) => {
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-const uploadsDir = path.join(__dirname, '../data/uploads');
-fs.mkdirSync(uploadsDir, { recursive: true });
 app.use('/uploads', express.static(uploadsDir, { maxAge: '7d' }));
 app.use(express.static(path.join(__dirname, '../dist')));
 

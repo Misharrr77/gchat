@@ -1,13 +1,7 @@
 const Database = require('better-sqlite3');
-const path = require('path');
-const fs = require('fs');
+const { dbPath } = require('./paths');
 
-const dataDir = path.join(__dirname, '..', 'data');
-const uploadsDir = path.join(dataDir, 'uploads');
-fs.mkdirSync(dataDir, { recursive: true });
-fs.mkdirSync(uploadsDir, { recursive: true });
-
-const db = new Database(path.join(dataDir, 'gchat.db'));
+const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
