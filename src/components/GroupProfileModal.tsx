@@ -31,6 +31,8 @@ export default function GroupProfileModal({
   const [topics, setTopics] = useState<GroupTopic[]>([]);
   const [topicsEnabled, setTopicsEnabled] = useState(!!conv.topics_enabled);
   const [newTopicName, setNewTopicName] = useState('');
+  const [renameTopicId, setRenameTopicId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
 
   useEffect(() => {
     setTopicsEnabled(!!conv.topics_enabled);
@@ -112,6 +114,19 @@ export default function GroupProfileModal({
     } catch {}
   };
 
+  const saveRenameTopic = async () => {
+    if (!renameTopicId || !isAdmin || conv.type !== 'group') return;
+    const n = renameDraft.trim().slice(0, 120);
+    if (!n) return;
+    try {
+      await api.conversations.topicRename(conv.id, renameTopicId, n);
+      const d = await api.conversations.topics(conv.id);
+      setTopics(d.topics || []);
+      setRenameTopicId(null);
+      await refresh();
+    } catch {}
+  };
+
   const isChannel = conv.type === 'channel';
 
   return (
@@ -177,11 +192,45 @@ export default function GroupProfileModal({
                       {topics.map(t => (
                         <div key={t.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-dark-800/80">
                           <Hash size={14} className="text-accent flex-shrink-0" />
-                          <span className="text-sm text-white flex-1 truncate">{t.name}</span>
-                          {topics.length > 1 && (
-                            <button type="button" onClick={() => deleteTopic(t.id)} className="p-1.5 text-slate-500 hover:text-red-400" aria-label="Удалить тему">
-                              <Trash2 size={14} />
-                            </button>
+                          {renameTopicId === t.id ? (
+                            <div className="flex-1 flex gap-1 min-w-0">
+                              <input
+                                value={renameDraft}
+                                onChange={e => setRenameDraft(e.target.value)}
+                                className="flex-1 min-w-0 px-2 py-1 bg-dark-700 border border-dark-600 rounded-lg text-sm text-white focus:outline-none focus:border-accent"
+                                autoFocus
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') saveRenameTopic();
+                                  if (e.key === 'Escape') setRenameTopicId(null);
+                                }}
+                              />
+                              <button type="button" onClick={saveRenameTopic} className="px-2 py-1 text-xs bg-accent text-white rounded-lg">
+                                ОК
+                              </button>
+                              <button type="button" onClick={() => setRenameTopicId(null)} className="px-2 py-1 text-xs text-slate-400">
+                                ✕
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <span className="text-sm text-white flex-1 truncate">{t.name}</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRenameTopicId(t.id);
+                                  setRenameDraft(t.name);
+                                }}
+                                className="p-1.5 text-slate-500 hover:text-accent"
+                                aria-label="Переименовать тему"
+                              >
+                                <Edit3 size={14} />
+                              </button>
+                              {topics.length > 1 && (
+                                <button type="button" onClick={() => deleteTopic(t.id)} className="p-1.5 text-slate-500 hover:text-red-400" aria-label="Удалить тему">
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
+                            </>
                           )}
                         </div>
                       ))}

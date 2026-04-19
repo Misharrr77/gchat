@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useMemo } from 'react';
+import { useRef, useEffect, useLayoutEffect, useState, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useChat } from '../contexts/ChatContext';
 import MessageBubble from './MessageBubble';
@@ -39,16 +39,33 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
     loadingOlder,
   } = useChat();
   const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const prevFirstMsgIdRef = useRef<string | undefined>(undefined);
   const suppressAutoScrollUntil = useRef(0);
   const [imgPreview, setImgPreview] = useState<string | null>(null);
   const [showGroupProfile, setShowGroupProfile] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (Date.now() < suppressAutoScrollUntil.current) return;
+    prevFirstMsgIdRef.current = undefined;
+  }, [active?.id, activeTopicId]);
+
+  /** Сразу вниз без анимации; при подгрузке старых сверху — не дёргать вниз */
+  useLayoutEffect(() => {
     if (pendingScrollMessageId) return;
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, pendingScrollMessageId]);
+    if (Date.now() < suppressAutoScrollUntil.current) return;
+    const el = scrollRef.current;
+    if (!el || messages.length === 0) return;
+
+    const firstId = messages[0]?.id;
+    const prevFirst = prevFirstMsgIdRef.current;
+    prevFirstMsgIdRef.current = firstId;
+
+    const prependedOlder = prevFirst !== undefined && firstId !== undefined && firstId !== prevFirst;
+    if (prependedOlder) return;
+
+    el.scrollTop = el.scrollHeight;
+  }, [messages, pendingScrollMessageId, active?.id]);
 
   useEffect(() => {
     if (!pendingScrollMessageId || loadingMsgs) return;
@@ -176,7 +193,7 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
             <p className="text-xs leading-tight">{subtitle()}</p>
           </div>
         </div>
-        {isGroup && active.topics_enabled && activeTopicId && (
+        {isGroup && !!active.topics_enabled && activeTopicId ? (
           <button
             type="button"
             onClick={e => {
@@ -187,7 +204,7 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
           >
             Темы
           </button>
-        )}
+        ) : null}
         {(isGroup || isChannel) && (
           <button onClick={() => setShowGroupProfile(true)} className="p-2 hover:bg-dark-700 rounded-xl text-slate-400 flex-shrink-0">
             <Info size={18} />
@@ -219,6 +236,7 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
       <div className="relative flex-1 flex flex-col min-h-0">
         <GroupTopicsGate />
         <div
+          ref={scrollRef}
           className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5 min-h-0"
           onClick={() => setSelectedId(null)}
           onScroll={e => {
