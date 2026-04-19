@@ -33,6 +33,19 @@ export interface Conversation {
   updated_at: string;
 }
 
+export interface MessageReaction {
+  emoji: string;
+  user_id: string;
+}
+
+export interface ReplyPreview {
+  id: string;
+  content: string | null;
+  type: string;
+  sender_display_name: string;
+  sender_username: string;
+}
+
 export interface Message {
   id: string;
   conversation_id: string;
@@ -43,7 +56,17 @@ export interface Message {
   sender_username: string;
   sender_display_name: string;
   sender_avatar: string | null;
+  sender_video_avatar?: string | null;
   created_at: string;
+  reply_to_id?: string | null;
+  reply_preview?: ReplyPreview | null;
+  reactions?: MessageReaction[];
+  /** Официальный пост канала (имя и аватар канала в ленте) */
+  as_channel?: boolean;
+  channel_name?: string | null;
+  channel_avatar?: string | null;
+  /** 1 канал | 0 от себя | null до явной установки */
+  post_as_channel?: number | null;
 }
 
 export interface Story { id: string; user_id: string; type: 'image' | 'video' | 'text'; media_url: string | null; text_content: string | null; bg_color: string; created_at: string; expires_at: string; view_count: number; viewed: number | null; }

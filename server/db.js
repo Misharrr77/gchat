@@ -122,5 +122,23 @@ migrate('conversations', 'description', "TEXT DEFAULT ''");
 migrate('conversations', 'creator_id', 'TEXT');
 migrate('conversations', 'is_public', 'INTEGER DEFAULT 0');
 migrate('conversation_members', 'role', "TEXT DEFAULT 'member'");
+migrate('messages', 'reply_to_id', 'TEXT');
+try {
+  db.exec(`ALTER TABLE messages ADD COLUMN post_as_channel INTEGER`);
+} catch {}
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS message_reactions (
+    id TEXT PRIMARY KEY,
+    message_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    emoji TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE(message_id, user_id, emoji)
+  );
+  CREATE INDEX IF NOT EXISTS idx_msg_reactions_msg ON message_reactions(message_id);
+`);
 
 module.exports = db;

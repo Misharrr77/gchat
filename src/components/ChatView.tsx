@@ -12,7 +12,7 @@ interface Props { onBack: () => void; onProfile: (u: User) => void; isMobile: bo
 
 export default function ChatView({ onBack, onProfile, isMobile }: Props) {
   const { user: me } = useAuth();
-  const { active, messages, loadingMsgs, typingUsers, onlineUsers } = useChat();
+  const { active, messages, loadingMsgs, typingUsers, onlineUsers, setReplyTo, toggleReaction } = useChat();
   const endRef = useRef<HTMLDivElement>(null);
   const [imgPreview, setImgPreview] = useState<string | null>(null);
   const [showGroupProfile, setShowGroupProfile] = useState(false);
@@ -51,8 +51,6 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
     if (isDirect) return <span className={isOnline ? 'text-green-400' : 'text-slate-500'}>{isOnline ? 'в сети' : 'не в сети'}</span>;
     return <span className="text-slate-400">{active.member_count} участник(ов)</span>;
   };
-
-  const channelBrand = isChannel ? { name: active.name || 'Канал', avatar: active.avatar } : undefined;
 
   const onHeaderClick = () => {
     if (isDirect && other) onProfile(other);
@@ -94,10 +92,15 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
           <MessageBubble
             key={msg.id}
             message={msg}
-            showAvatar={!i || messages[i - 1].sender_id !== msg.sender_id}
+            showAvatar={
+              !i ||
+              messages[i - 1].sender_id !== msg.sender_id ||
+              !!(messages[i - 1].as_channel ?? false) !== !!(msg.as_channel ?? false)
+            }
             onImageClick={setImgPreview}
-            isGroup={isGroup || isChannel}
-            channelBranding={channelBrand}
+            showSenderNames={isGroup || isChannel}
+            onReply={canWrite ? () => setReplyTo(msg) : undefined}
+            onToggleReaction={emoji => toggleReaction(msg.id, emoji)}
           />
         ))}
         <div ref={endRef} />

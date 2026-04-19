@@ -115,6 +115,17 @@ app.get('/api/users/:id', auth, (req, res) => {
   res.json({ user });
 });
 
+function broadcastUserProfile(user) {
+  const rows = db.prepare(`
+    SELECT DISTINCT cm.user_id FROM conversation_members cm
+    WHERE cm.conversation_id IN (SELECT conversation_id FROM conversation_members WHERE user_id = ?)
+  `).all(user.id);
+  rows.forEach(({ user_id }) => {
+    const socks = onlineUsers.get(user_id);
+    if (socks) socks.forEach(sid => io.to(sid).emit('user:updated', { user }));
+  });
+}
+
 app.put('/api/users/profile', auth, (req, res) => {
   const { displayName, bio, status, avatar, videoAvatar, profileHeader } = req.body;
   const sets = [], vals = [];
@@ -127,7 +138,9 @@ app.put('/api/users/profile', auth, (req, res) => {
   if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
   vals.push(req.user.id);
   db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
-  res.json({ user: db.prepare(`SELECT ${UF} FROM users WHERE id = ?`).get(req.user.id) });
+  const user = db.prepare(`SELECT ${UF} FROM users WHERE id = ?`).get(req.user.id);
+  broadcastUserProfile(user);
+  res.json({ user });
 });
 
 app.post('/api/upload', auth, upload.single('file'), (req, res) => {
@@ -325,21 +338,120 @@ app.get('/api/discover', auth, (req, res) => {
 
 // ── Messages ──
 
+function fetchReactionsForMessages(messageIds) {
+  const map = new Map();
+  if (!messageIds.length) return map;
+  const ph = messageIds.map(() => '?').join(',');
+  const rows = db.prepare(`SELECT message_id, emoji, user_id FROM message_reactions WHERE message_id IN (${ph})`).all(...messageIds);
+  rows.forEach(r => {
+    if (!map.has(r.message_id)) map.set(r.message_id, []);
+    map.get(r.message_id).push({ emoji: r.emoji, user_id: r.user_id });
+  });
+  return map;
+}
+
+const MSG_BASE = `m.id, m.conversation_id, m.sender_id, m.content, m.type, m.media_url, m.reply_to_id, m.post_as_channel, m.created_at,
+  u.username as sender_username, u.display_name as sender_display_name, u.avatar as sender_avatar, u.video_avatar as sender_video_avatar,
+  c.type as _conv_type, c.name as _conv_name, c.avatar as _conv_avatar,
+  rm.id as _reply_id, rm.content as _reply_content, rm.type as _reply_type,
+  ru.display_name as _reply_sender_display, ru.username as _reply_sender_username`;
+
+const MSG_FROM = `FROM messages m
+  JOIN users u ON m.sender_id = u.id
+  JOIN conversations c ON c.id = m.conversation_id
+  LEFT JOIN messages rm ON m.reply_to_id = rm.id
+  LEFT JOIN users ru ON rm.sender_id = ru.id`;
+
+function shapeDbMessage(row, reactionsMap) {
+  const reactions = reactionsMap.get(row.id) || [];
+  const isChannelConv = row._conv_type === 'channel';
+  const pac = row.post_as_channel;
+  /** NULL/1 = официальный пост канала; 0 = от себя */
+  const asChannel = isChannelConv && pac !== 0;
+  const msg = {
+    id: row.id,
+    conversation_id: row.conversation_id,
+    sender_id: row.sender_id,
+    content: row.content,
+    type: row.type,
+    media_url: row.media_url,
+    reply_to_id: row.reply_to_id || null,
+    post_as_channel: isChannelConv ? (pac === 0 ? 0 : pac === 1 ? 1 : null) : null,
+    created_at: row.created_at,
+    sender_username: row.sender_username,
+    sender_display_name: row.sender_display_name,
+    sender_avatar: row.sender_avatar,
+    sender_video_avatar: row.sender_video_avatar,
+    as_channel: asChannel,
+    channel_name: asChannel ? row._conv_name : null,
+    channel_avatar: asChannel ? row._conv_avatar : null,
+    reactions,
+  };
+  if (row.reply_to_id && row._reply_id) {
+    msg.reply_preview = {
+      id: row._reply_id,
+      content: row._reply_content,
+      type: row._reply_type,
+      sender_display_name: row._reply_sender_display,
+      sender_username: row._reply_sender_username,
+    };
+  }
+  return msg;
+}
+
+function hydrateMessageById(messageId) {
+  const row = db.prepare(`SELECT ${MSG_BASE} ${MSG_FROM} WHERE m.id = ?`).get(messageId);
+  if (!row) return null;
+  const reactMap = fetchReactionsForMessages([messageId]);
+  return shapeDbMessage(row, reactMap);
+}
+
+function broadcastMessageReaction(conversationId, messageId, reactions) {
+  const members = db.prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ?').all(conversationId);
+  members.forEach(({ user_id }) => {
+    const sockets = onlineUsers.get(user_id);
+    if (sockets) sockets.forEach(sid => io.to(sid).emit('message:reaction', { conversationId, messageId, reactions }));
+  });
+}
+
 app.get('/api/messages/:conversationId', auth, (req, res) => {
   const { conversationId } = req.params;
   const { limit = 50, before } = req.query;
   const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conversationId, req.user.id);
   if (!member) return res.status(403).json({ error: 'Not a member' });
-  const q = before
-    ? `SELECT m.*, u.username as sender_username, u.display_name as sender_display_name, u.avatar as sender_avatar FROM messages m JOIN users u ON m.sender_id = u.id WHERE m.conversation_id = ? AND m.created_at < ? ORDER BY m.created_at DESC LIMIT ?`
-    : `SELECT m.*, u.username as sender_username, u.display_name as sender_display_name, u.avatar as sender_avatar FROM messages m JOIN users u ON m.sender_id = u.id WHERE m.conversation_id = ? ORDER BY m.created_at DESC LIMIT ?`;
-  const p = before ? [conversationId, before, +limit] : [conversationId, +limit];
-  res.json({ messages: db.prepare(q).all(...p).reverse() });
+  const rows = before
+    ? db.prepare(`SELECT ${MSG_BASE} ${MSG_FROM} WHERE m.conversation_id = ? AND m.created_at < ? ORDER BY m.created_at DESC LIMIT ?`).all(conversationId, before, +limit)
+    : db.prepare(`SELECT ${MSG_BASE} ${MSG_FROM} WHERE m.conversation_id = ? ORDER BY m.created_at DESC LIMIT ?`).all(conversationId, +limit);
+  const ids = rows.map(r => r.id);
+  const reactMap = fetchReactionsForMessages(ids);
+  const messages = rows.reverse().map(r => shapeDbMessage(r, reactMap));
+  res.json({ messages });
+});
+
+app.post('/api/messages/:messageId/reactions', auth, (req, res) => {
+  try {
+    const emoji = String(req.body?.emoji || '').trim();
+    if (!emoji || emoji.length > 16) return res.status(400).json({ error: 'Invalid emoji' });
+    const msg = db.prepare('SELECT id, conversation_id FROM messages WHERE id = ?').get(req.params.messageId);
+    if (!msg) return res.status(404).json({ error: 'Not found' });
+    const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(msg.conversation_id, req.user.id);
+    if (!member) return res.status(403).json({ error: 'Not a member' });
+    const existing = db.prepare('SELECT id FROM message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?').get(msg.id, req.user.id, emoji);
+    if (existing) db.prepare('DELETE FROM message_reactions WHERE id = ?').run(existing.id);
+    else db.prepare('INSERT INTO message_reactions (id, message_id, user_id, emoji) VALUES (?, ?, ?, ?)').run(uuidv4(), msg.id, req.user.id, emoji);
+    const reactMap = fetchReactionsForMessages([msg.id]);
+    const reactions = reactMap.get(msg.id) || [];
+    broadcastMessageReaction(msg.conversation_id, msg.id, reactions);
+    res.json({ reactions });
+  } catch (err) {
+    console.error('[API] POST reactions error:', err);
+    res.status(500).json({ error: err.message || 'Internal server error' });
+  }
 });
 
 app.post('/api/messages', auth, (req, res) => {
   try {
-    const { conversationId, content, type = 'text', mediaUrl } = req.body;
+    const { conversationId, content, type = 'text', mediaUrl, replyToId, postAsChannel } = req.body;
     if (!conversationId) return res.status(400).json({ error: 'conversationId required' });
     const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conversationId, req.user.id);
     if (!member) return res.status(403).json({ error: 'Not a member' });
@@ -348,10 +460,20 @@ app.post('/api/messages', auth, (req, res) => {
       const role = db.prepare('SELECT role FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conversationId, req.user.id);
       if (role?.role !== 'admin') return res.status(403).json({ error: 'Только админы' });
     }
+    if (replyToId) {
+      const ref = db.prepare('SELECT conversation_id FROM messages WHERE id = ?').get(replyToId);
+      if (!ref || ref.conversation_id !== conversationId) return res.status(400).json({ error: 'Некорректный ответ' });
+    }
     const id = uuidv4();
-    db.prepare('INSERT INTO messages (id, conversation_id, sender_id, content, type, media_url) VALUES (?, ?, ?, ?, ?, ?)').run(id, conversationId, req.user.id, content, type, mediaUrl || null);
+    let channelPostFlag = null;
+    if (conv?.type === 'channel') {
+      channelPostFlag = postAsChannel === false || postAsChannel === 0 ? 0 : 1;
+    }
+    db.prepare(
+      'INSERT INTO messages (id, conversation_id, sender_id, content, type, media_url, reply_to_id, post_as_channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(id, conversationId, req.user.id, content, type, mediaUrl || null, replyToId || null, channelPostFlag);
     db.prepare(`UPDATE conversations SET updated_at = datetime('now') WHERE id = ?`).run(conversationId);
-    const message = db.prepare(`SELECT m.*, u.username as sender_username, u.display_name as sender_display_name, u.avatar as sender_avatar FROM messages m JOIN users u ON m.sender_id = u.id WHERE m.id = ?`).get(id);
+    const message = hydrateMessageById(id);
     const members = db.prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ?').all(conversationId);
     members.forEach(({ user_id }) => {
       const sockets = onlineUsers.get(user_id);

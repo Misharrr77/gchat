@@ -2,12 +2,14 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useChat } from '../contexts/ChatContext';
 import { api } from '../lib/api';
 import { getSocket } from '../lib/socket';
-import { Send, Paperclip, Image, Music, Video, X } from 'lucide-react';
+import { Send, Paperclip, Image, Music, Video, X, Radio, User } from 'lucide-react';
 
 const HEARTBEAT_MS = 2200;
 
 export default function MessageInput() {
-  const { active, sendMessage } = useChat();
+  const { active, sendMessage, replyTo, setReplyTo } = useChat();
+  const isChannel = active?.type === 'channel';
+  const [postFromChannel, setPostFromChannel] = useState(true);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [preview, setPreview] = useState<{ file: File; type: string; url: string } | null>(null);
@@ -48,6 +50,10 @@ export default function MessageInput() {
     stopTyping();
   }, [active?.id, stopTyping]);
 
+  useEffect(() => {
+    setPostFromChannel(true);
+  }, [active?.id]);
+
   const handleChange = (v: string) => {
     setText(v);
     if (!active) return;
@@ -77,13 +83,15 @@ export default function MessageInput() {
     stopTyping();
     setSending(true);
     try {
+      const rid = replyTo?.id ?? null;
+      const channelMode = isChannel ? postFromChannel : undefined;
       if (preview) {
         const d = await api.upload(preview.file);
-        await sendMessage(text.trim() || '', preview.type, d.url);
+        await sendMessage(text.trim() || '', preview.type, d.url, rid, channelMode);
         URL.revokeObjectURL(preview.url);
         setPreview(null);
       } else {
-        await sendMessage(text.trim());
+        await sendMessage(text.trim(), 'text', undefined, rid, channelMode);
       }
       setText('');
     } catch (err) { console.error(err); }
@@ -92,6 +100,52 @@ export default function MessageInput() {
 
   return (
     <div className="border-t border-dark-600 bg-dark-800 flex-shrink-0">
+      {isChannel && (
+        <div className="px-4 pt-3 pb-2 flex gap-2 border-b border-dark-600/50">
+          <button
+            type="button"
+            onClick={() => setPostFromChannel(true)}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-medium transition border ${
+              postFromChannel
+                ? 'bg-accent/25 border-accent text-white shadow-inner'
+                : 'bg-dark-700/80 border-dark-600 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Radio size={15} className={postFromChannel ? 'text-accent-light' : ''} />
+            От имени канала
+          </button>
+          <button
+            type="button"
+            onClick={() => setPostFromChannel(false)}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-medium transition border ${
+              !postFromChannel
+                ? 'bg-dark-700 border-accent/60 text-white ring-1 ring-accent/30'
+                : 'bg-dark-700/80 border-dark-600 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <User size={15} />
+            От себя
+          </button>
+        </div>
+      )}
+      {replyTo && (
+        <div className="px-4 pt-3 flex items-start gap-2 border-b border-dark-600/60">
+          <div className="flex-1 min-w-0 border-l-2 border-accent pl-2 py-0.5">
+            <p className="text-[10px] text-accent font-medium truncate">
+              {replyTo.sender_display_name || replyTo.sender_username}
+            </p>
+            <p className="text-xs text-slate-400 line-clamp-2">{(replyTo.content || '').trim() || (replyTo.type !== 'text' ? `[${replyTo.type}]` : '…')}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setReplyTo(null)}
+            className="p-1 text-slate-500 hover:text-white flex-shrink-0"
+            aria-label="Отменить ответ"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
       {preview && (
         <div className="px-4 pt-3 flex items-center gap-3">
           <div className="relative">

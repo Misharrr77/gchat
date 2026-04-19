@@ -54,8 +54,16 @@ export const api = {
   discover: (q: string) => req(`/discover?q=${encodeURIComponent(q)}`),
   messages: {
     list: (cid: string, before?: string) => req(`/messages/${cid}${before ? `?before=${before}` : ''}`),
-    send: (body: { conversationId: string; content: string; type?: string; mediaUrl?: string }) =>
-      req('/messages', { method: 'POST', body: JSON.stringify(body) }),
+    send: (body: {
+      conversationId: string;
+      content: string;
+      type?: string;
+      mediaUrl?: string;
+      replyToId?: string | null;
+      postAsChannel?: boolean;
+    }) => req('/messages', { method: 'POST', body: JSON.stringify(body) }),
+    toggleReaction: (messageId: string, emoji: string) =>
+      req(`/messages/${messageId}/reactions`, { method: 'POST', body: JSON.stringify({ emoji }) }),
   },
   stories: {
     list: () => req('/stories'),
