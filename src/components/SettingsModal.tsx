@@ -62,7 +62,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
         <div className="flex-1 overflow-y-auto min-h-0 px-4 py-4 space-y-8">
           <section>
             <h3 className={`text-xs font-semibold uppercase tracking-wide mb-3 flex items-center gap-2 ${sectionTitle}`}>
-              <Moon size={13} /> Оформление
+              <Moon size={13} /> Тема
             </h3>
             <div className="flex flex-wrap gap-2 mb-4">
               {THEME_OPTIONS.map(({ v, label, icon }) => (
@@ -77,9 +77,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                 </button>
               ))}
             </div>
-            <label className={`flex items-center gap-3 text-sm mb-1 ${labelText}`}>
-              <span className="text-accent">●</span> Цвет акцента (оттенок)
-            </label>
+            <label className={`text-sm mb-1 block ${labelText}`}>Акцент</label>
             <input
               type="range"
               min={0}
@@ -88,12 +86,12 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
               onChange={e => field('accentHue', +e.target.value)}
               className="w-full accent-accent h-2"
             />
-            <p className={`text-[11px] mt-1 ${hintText}`}>Текущий: {settings.accentHue}° — кнопки и выделения обновляются сразу.</p>
+            <p className={`text-[11px] mt-1 ${hintText}`}>{settings.accentHue}°</p>
           </section>
 
           <section>
             <h3 className={`text-xs font-semibold uppercase tracking-wide mb-3 flex items-center gap-2 ${sectionTitle}`}>
-              <Type size={13} /> Текст и интерфейс
+              <Type size={13} /> Интерфейс
             </h3>
             <label className={`text-sm mb-2 block ${labelText}`}>Масштаб шрифта</label>
             <input
@@ -122,7 +120,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
             </div>
 
             <p className={`text-sm mt-4 mb-2 flex items-center gap-2 ${labelText}`}>
-              <PanelLeft size={14} /> Ширина списка чатов
+              <PanelLeft size={14} /> Список чатов
             </p>
             <div className="flex gap-2">
               <button
@@ -144,7 +142,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
 
           <section>
             <h3 className={`text-xs font-semibold uppercase tracking-wide mb-3 flex items-center gap-2 ${sectionTitle}`}>
-              <Volume2 size={13} /> Звук и отклик
+              <Volume2 size={13} /> Звук
             </h3>
             <button
               type="button"
@@ -152,9 +150,9 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
               onClick={() => field('soundEnabled', !settings.soundEnabled)}
             >
               {settings.soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
-              Звук новых сообщений: {settings.soundEnabled ? 'вкл.' : 'выкл.'}
+              Звук {settings.soundEnabled ? 'вкл' : 'выкл'}
             </button>
-            <label className={`text-sm mb-2 block ${!settings.soundEnabled ? 'opacity-45' : ''} ${labelText}`}>Громкость уведомления</label>
+            <label className={`text-sm mb-2 block ${!settings.soundEnabled ? 'opacity-45' : ''} ${labelText}`}>Громкость</label>
             <input
               type="range"
               min={5}
@@ -170,23 +168,20 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
               onClick={() => field('vibrateOnNotify', !settings.vibrateOnNotify)}
             >
               <Vibrate size={16} />
-              Вибрация при сообщении (паттерн, если устройство поддерживает)
+              Вибрация
             </button>
-            <p className={`text-[11px] mt-2 ${hintText}`}>
-              На ПК вибрации часто нет — на телефоне используется последовательность импульсов Vibration API.
-            </p>
           </section>
 
           <section>
             <h3 className={`text-xs font-semibold uppercase tracking-wide mb-3 flex items-center gap-2 ${sectionTitle}`}>
               <MessageSquare size={13} /> Чат
             </h3>
-            <p className={`text-sm mb-2 ${labelText}`}>Enter в поле сообщения</p>
+            <p className={`text-sm mb-2 ${labelText}`}>Enter в сообщении</p>
             <div className="flex gap-2">
               {(
                 [
-                  { v: 'send' as SendOnEnterMode, label: 'Enter — отправить' },
-                  { v: 'newline' as SendOnEnterMode, label: 'Enter — новая строка' },
+                  { v: 'send' as SendOnEnterMode, label: 'Отправить' },
+                  { v: 'newline' as SendOnEnterMode, label: 'Новая строка' },
                 ] as const
               ).map(({ v, label }) => (
                 <button
@@ -199,9 +194,6 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                 </button>
               ))}
             </div>
-            <p className={`text-[11px] mt-2 ${hintText}`}>
-              Режим «отправить»: Shift+Enter — новая строка. Режим «новая строка»: Ctrl+Enter — отправить.
-            </p>
           </section>
 
           <section>
