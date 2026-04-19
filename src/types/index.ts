@@ -52,6 +52,7 @@ export interface GroupTopic {
   last_message_type?: string | null;
   last_message_at?: string | null;
   last_message_sender_id?: string | null;
+  unread_count?: number;
 }
 
 export interface MessageReaction {

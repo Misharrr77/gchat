@@ -38,12 +38,16 @@ export default function ChatPage() {
 
   return (
     <>
-      {!!user?.quiz_warning && (
-        <div className="fixed top-0 left-0 right-0 z-[130] px-4 py-2 bg-red-950/95 text-red-100 text-[11px] text-center border-b border-red-500/40 shadow-lg">
-          Предупреждение аккаунта: проверка при регистрации не пройдена — часть возможностей ограничена.
-        </div>
-      )}
-      <div className={`flex h-[100dvh] bg-dark-900 overflow-hidden ${user?.quiz_warning ? 'pt-9' : ''}`}>
+      <div className="flex flex-col h-[100dvh] bg-dark-900 overflow-hidden">
+        {!!user?.quiz_warning && (
+          <div
+            role="status"
+            className="flex-shrink-0 px-3 py-2.5 sm:py-2 sm:px-4 bg-red-950/95 text-red-100 text-[11px] sm:text-xs leading-snug text-center border-b border-red-500/35 shadow-md"
+          >
+            Проверка не пройдена, на аккаунт наложены ограничения в соответствии с гомосексуальной политикой мессенджера.
+          </div>
+        )}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
         {isDesktop ? (
           <>
             <div className={`${sidebarWidthClass} flex-shrink-0 border-r border-dark-600`}>
@@ -88,6 +92,7 @@ export default function ChatPage() {
             )}
           </div>
         )}
+        </div>
       </div>
 
       {drawer && (

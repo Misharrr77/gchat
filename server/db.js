@@ -175,6 +175,19 @@ migrate('users', 'quiz_warning', 'INTEGER DEFAULT 0');
 migrate('users', 'restricted', 'INTEGER DEFAULT 0');
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS topic_reads (
+    user_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    topic_id TEXT NOT NULL,
+    last_read_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, conversation_id, topic_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (topic_id) REFERENCES group_topics(id) ON DELETE CASCADE
+  );
+`);
+
+db.exec(`
   CREATE TABLE IF NOT EXISTS conversation_invites (
     code TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL UNIQUE,

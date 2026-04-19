@@ -126,7 +126,12 @@ export default function ProfileModal({ userId, onClose }: { userId: string; onCl
             </h3>
             <p className="text-xs text-slate-300 drop-shadow">@{profile.username}</p>
             {!!profile.quiz_warning && (
-              <p className="text-[10px] text-red-400/90 mt-1">На аккаунте предупреждение (проверка при регистрации).</p>
+              <p className="mt-2 flex items-center gap-1.5 text-xs text-red-400 font-medium">
+                <span className="shrink-0 leading-none" aria-hidden>
+                  ⚠️
+                </span>
+                <span>натурал/женщина</span>
+              </p>
             )}
           </div>
           {isMe && !editing && <button onClick={() => setEditing(true)} className="p-2 hover:bg-dark-700 rounded-lg text-slate-400 hover:text-white transition mb-1 flex-shrink-0"><Edit3 size={15} /></button>}

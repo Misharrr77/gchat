@@ -56,7 +56,11 @@ export const api = {
       req(`/conversations/${convId}/members/${userId}/role`, { method: 'PUT', body: JSON.stringify({ role }) }),
     removeMember: (convId: string, userId: string) =>
       req(`/conversations/${convId}/members/${userId}`, { method: 'DELETE' }),
-    markRead: (id: string) => req(`/conversations/${id}/read`, { method: 'POST' }),
+    markRead: (id: string, topicId?: string | null) =>
+      req(`/conversations/${id}/read`, {
+        method: 'POST',
+        body: JSON.stringify(topicId ? { topicId } : {}),
+      }),
     pins: (id: string): Promise<{ pins: PinnedEntry[] }> => req(`/conversations/${id}/pins`),
     pin: (conversationId: string, messageId: string) =>
       req(`/conversations/${conversationId}/pin`, { method: 'POST', body: JSON.stringify({ messageId }) }),

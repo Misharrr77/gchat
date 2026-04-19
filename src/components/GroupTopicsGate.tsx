@@ -59,7 +59,14 @@ export default function GroupTopicsGate() {
               </div>
               <div className="flex-1 min-w-0 pt-0.5">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-white truncate">{t.name}</p>
+                  <p className="text-sm font-semibold text-white truncate flex items-center gap-2 min-w-0">
+                    {t.name}
+                    {(t.unread_count ?? 0) > 0 && (
+                      <span className="flex-shrink-0 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-accent text-[10px] font-bold text-white leading-none">
+                        {(t.unread_count ?? 0) > 99 ? '99+' : t.unread_count}
+                      </span>
+                    )}
+                  </p>
                   <span className="text-[10px] text-slate-500 whitespace-nowrap flex-shrink-0">
                     {formatKaliningradListTime(t.last_message_at)}
                   </span>

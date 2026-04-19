@@ -188,8 +188,8 @@ function enrichTopicRow(raw) {
   return row;
 }
 
-/** Список тем группы с превью последнего сообщения (Калининградское «сегодня» через created_at сообщения) */
-function fetchTopicsEnriched(cid) {
+/** Список тем группы с превью и непрочитанными по теме */
+function fetchTopicsEnriched(cid, userId) {
   const rows = db.prepare(`
     SELECT gt.id, gt.conversation_id, gt.name, gt.sort_order,
       COALESCE(gt.pinned, 0) as pinned,
@@ -197,11 +197,19 @@ function fetchTopicsEnriched(cid) {
       (SELECT m.content FROM messages m WHERE m.conversation_id = gt.conversation_id AND m.topic_id = gt.id ORDER BY m.created_at DESC LIMIT 1) as last_message,
       (SELECT m.type FROM messages m WHERE m.conversation_id = gt.conversation_id AND m.topic_id = gt.id ORDER BY m.created_at DESC LIMIT 1) as last_message_type,
       (SELECT m.created_at FROM messages m WHERE m.conversation_id = gt.conversation_id AND m.topic_id = gt.id ORDER BY m.created_at DESC LIMIT 1) as last_message_at,
-      (SELECT m.sender_id FROM messages m WHERE m.conversation_id = gt.conversation_id AND m.topic_id = gt.id ORDER BY m.created_at DESC LIMIT 1) as last_message_sender_id
+      (SELECT m.sender_id FROM messages m WHERE m.conversation_id = gt.conversation_id AND m.topic_id = gt.id ORDER BY m.created_at DESC LIMIT 1) as last_message_sender_id,
+      (SELECT COUNT(*) FROM messages m
+        WHERE m.conversation_id = gt.conversation_id AND m.topic_id = gt.id
+        AND m.sender_id != ?
+        AND datetime(m.created_at) > datetime(COALESCE(
+          (SELECT tr.last_read_at FROM topic_reads tr WHERE tr.user_id = ? AND tr.conversation_id = gt.conversation_id AND tr.topic_id = gt.id),
+          '1970-01-01'
+        ))
+      ) as unread_count
     FROM group_topics gt
     WHERE gt.conversation_id = ?
     ORDER BY COALESCE(gt.pinned, 0) DESC, gt.sort_order ASC, gt.created_at ASC
-  `).all(cid);
+  `).all(userId, userId, cid);
   return rows.map(enrichTopicRow);
 }
 
@@ -239,29 +247,49 @@ app.get('/api/conversations', auth, (req, res) => {
       (SELECT COUNT(*) FROM messages m
         WHERE m.conversation_id = c.id
         AND m.sender_id != ?
-        AND m.created_at > COALESCE(
-          (SELECT last_read_at FROM conversation_reads WHERE conversation_id = c.id AND user_id = ?),
-          (SELECT joined_at FROM conversation_members WHERE conversation_id = c.id AND user_id = ?),
-          '1970-01-01'
-        )
+        AND CASE WHEN COALESCE((SELECT topics_enabled FROM conversations cx WHERE cx.id = c.id), 0) = 1 THEN
+          datetime(m.created_at) > datetime(COALESCE(
+            (SELECT tr.last_read_at FROM topic_reads tr WHERE tr.user_id = ? AND tr.conversation_id = c.id AND tr.topic_id = m.topic_id),
+            '1970-01-01'
+          ))
+        ELSE
+          m.created_at > COALESCE(
+            (SELECT last_read_at FROM conversation_reads WHERE conversation_id = c.id AND user_id = ?),
+            (SELECT joined_at FROM conversation_members WHERE conversation_id = c.id AND user_id = ?),
+            '1970-01-01'
+          )
+        END
       ) as unread_count
     FROM conversations c JOIN conversation_members cm ON c.id = cm.conversation_id
     WHERE cm.user_id = ? ${tw}
     ORDER BY COALESCE((SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1), c.created_at) DESC
-  `).all(uid, uid, uid, uid);
+  `).all(uid, uid, uid, uid, uid);
   res.json({ conversations: rows.map(c => enrichConversation(c, req.user.id)) });
 });
 
 app.post('/api/conversations/:id/read', auth, (req, res) => {
   const cid = req.params.id;
+  const topicId = req.body?.topicId ? String(req.body.topicId) : null;
   const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(cid, req.user.id);
   if (!member) return res.status(403).json({ error: 'Not a member' });
+  const conv = db.prepare('SELECT type, topics_enabled FROM conversations WHERE id = ?').get(cid);
+
+  if (conv?.type === 'group' && conv.topics_enabled && topicId) {
+    const topicLatest = db
+      .prepare(`SELECT COALESCE(MAX(created_at), datetime('now')) as t FROM messages WHERE conversation_id = ? AND topic_id = ?`)
+      .get(cid, topicId);
+    db.prepare(`
+      INSERT INTO topic_reads (user_id, conversation_id, topic_id, last_read_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(user_id, conversation_id, topic_id) DO UPDATE SET last_read_at = excluded.last_read_at
+    `).run(req.user.id, cid, topicId, topicLatest.t);
+    return res.json({ ok: true });
+  }
+
   const latest = db.prepare(`SELECT COALESCE(MAX(created_at), datetime('now')) as t FROM messages WHERE conversation_id = ?`).get(cid);
   db.prepare(`
     INSERT INTO conversation_reads (user_id, conversation_id, last_read_at) VALUES (?, ?, ?)
     ON CONFLICT(user_id, conversation_id) DO UPDATE SET last_read_at = excluded.last_read_at
   `).run(req.user.id, cid, latest.t);
-  const conv = db.prepare('SELECT type FROM conversations WHERE id = ?').get(cid);
   if (conv?.type === 'direct') {
     const others = db.prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ? AND user_id != ?').all(cid, req.user.id);
     others.forEach(({ user_id }) => {
@@ -365,7 +393,7 @@ app.get('/api/conversations/:id/topics', auth, (req, res) => {
   const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(cid, req.user.id);
   if (!member) return res.status(403).json({ error: 'Нет доступа' });
   const conv = db.prepare('SELECT topics_enabled FROM conversations WHERE id = ?').get(cid);
-  const topics = fetchTopicsEnriched(cid);
+  const topics = fetchTopicsEnriched(cid, req.user.id);
   res.json({ topics, topics_enabled: conv?.topics_enabled ?? 0 });
 });
 
@@ -381,7 +409,7 @@ app.post('/api/conversations/:id/topics', auth, (req, res) => {
   const id = uuidv4();
   db.prepare('INSERT INTO group_topics (id, conversation_id, name, sort_order, pinned) VALUES (?, ?, ?, ?, 0)').run(id, cid, name, mo + 1);
   const row = db.prepare('SELECT id, conversation_id, name, sort_order, COALESCE(pinned,0) as pinned, created_at FROM group_topics WHERE id = ?').get(id);
-  const topics = fetchTopicsEnriched(cid);
+  const topics = fetchTopicsEnriched(cid, req.user.id);
   const topic = topics.find(t => t.id === id) || enrichTopicRow(row);
   res.json({ topic });
 });
@@ -409,7 +437,7 @@ app.patch('/api/conversations/:id/topics/:topicId', auth, (req, res) => {
   vals.push(tid, cid);
   const r = db.prepare(`UPDATE group_topics SET ${sets.join(', ')} WHERE id = ? AND conversation_id = ?`).run(...vals);
   if (!r.changes) return res.status(404).json({ error: 'Не найдено' });
-  const topics = fetchTopicsEnriched(cid);
+  const topics = fetchTopicsEnriched(cid, req.user.id);
   const topic = topics.find(t => t.id === tid);
   res.json({ topic });
 });
@@ -429,15 +457,15 @@ app.post('/api/conversations/:id/topics/:topicId/move', auth, (req, res) => {
   const idx = topics.findIndex(t => t.id === tid);
   if (idx === -1) return res.status(404).json({ error: 'Не найдено' });
   const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
-  if (swapIdx < 0 || swapIdx >= topics.length) return res.json({ ok: true, topics: fetchTopicsEnriched(cid) });
+  if (swapIdx < 0 || swapIdx >= topics.length) return res.json({ ok: true, topics: fetchTopicsEnriched(cid, req.user.id) });
   const a = topics[idx];
   const b = topics[swapIdx];
-  if (a.pinned !== b.pinned) return res.json({ ok: true, topics: fetchTopicsEnriched(cid) });
+  if (a.pinned !== b.pinned) return res.json({ ok: true, topics: fetchTopicsEnriched(cid, req.user.id) });
   const sa = a.sort_order;
   const sb = b.sort_order;
   db.prepare('UPDATE group_topics SET sort_order = ? WHERE id = ?').run(sb, a.id);
   db.prepare('UPDATE group_topics SET sort_order = ? WHERE id = ?').run(sa, b.id);
-  res.json({ ok: true, topics: fetchTopicsEnriched(cid) });
+  res.json({ ok: true, topics: fetchTopicsEnriched(cid, req.user.id) });
 });
 
 app.delete('/api/conversations/:id/topics/:topicId', auth, (req, res) => {

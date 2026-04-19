@@ -215,6 +215,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     socket.off('pins:updated');
     socket.off('dm:peerRead');
 
+    let topicsListRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleTopicsUnreadRefresh = () => {
+      if (topicsListRefreshTimer) clearTimeout(topicsListRefreshTimer);
+      topicsListRefreshTimer = setTimeout(() => {
+        topicsListRefreshTimer = null;
+        void refresh();
+      }, 420);
+    };
+
     const syncAfterSocketConnect = () => {
       console.log('[GChat] Socket connected, id:', socket.id, 'transport:', socket.io.engine.transport.name);
       setSocketOk(true);
@@ -244,10 +253,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         msg.topic_id !== activeTopicIdRef.current;
       const effectivelyViewing = viewing && !wrongTopic;
 
+      let refreshTopicsUnread = false;
       setConversations(p => {
         const u = p.map(c => {
           if (c.id !== msg.conversation_id) return c;
-          const unread = effectivelyViewing ? 0 : (c.unread_count || 0) + (fromOther ? 1 : 0);
+          const isTopicsGroup = c.type === 'group' && !!c.topics_enabled;
+          if (isTopicsGroup) refreshTopicsUnread = true;
+          const unread = isTopicsGroup
+            ? c.unread_count ?? 0
+            : effectivelyViewing
+              ? 0
+              : (c.unread_count || 0) + (fromOther ? 1 : 0);
           return {
             ...c,
             last_message: lastLine,
@@ -263,6 +279,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             new Date(b.last_message_at || b.created_at).getTime() - new Date(a.last_message_at || a.created_at).getTime()
         );
       });
+      if (refreshTopicsUnread) scheduleTopicsUnreadRefresh();
 
       if (activeChat?.id === msg.conversation_id) {
         const conv = activeChat;
@@ -273,7 +290,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             if (p.some(m => m.id === msg.id)) return p;
             return [...p, msg];
           });
-          if (effectivelyViewing) api.conversations.markRead(msg.conversation_id).catch(() => {});
+          if (effectivelyViewing) {
+            const ac = activeRef.current;
+            const tid =
+              ac?.type === 'group' && ac.topics_enabled && msg.topic_id ? msg.topic_id : undefined;
+            api.conversations.markRead(msg.conversation_id, tid).catch(() => {});
+          }
         }
       }
 
@@ -376,6 +398,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     refreshStories();
 
     return () => {
+      if (topicsListRefreshTimer) clearTimeout(topicsListRefreshTimer);
       typingTimeoutsRef.current.forEach(t => clearTimeout(t));
       typingTimeoutsRef.current.clear();
       socket.off('connect');
@@ -417,17 +440,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!active?.id || !user?.id) return;
     let cancelled = false;
+    const topicForRead =
+      active.type === 'group' && active.topics_enabled && activeTopicId ? activeTopicId : undefined;
     api.conversations
-      .markRead(active.id)
+      .markRead(active.id, topicForRead)
       .then(() => {
         if (cancelled) return;
-        setConversations(p => p.map(c => (c.id === active.id ? { ...c, unread_count: 0 } : c)));
+        if (active.type === 'group' && active.topics_enabled) void refresh();
+        else setConversations(p => p.map(c => (c.id === active.id ? { ...c, unread_count: 0 } : c)));
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [active?.id, user?.id]);
+  }, [active?.id, active?.type, active?.topics_enabled, user?.id, activeTopicId, refresh]);
 
   useEffect(() => {
     if (!active?.id || !user?.id) return;

@@ -20,6 +20,14 @@ export default function AuthPage() {
 
   const toggleQ3 = (k: keyof typeof q3) => setQ3(p => ({ ...p, [k]: !p[k] }));
 
+  /** Порядок в строке: женщина, гей, натурал, мужчина */
+  const q3Words: { key: keyof typeof q3; label: string }[] = [
+    { key: 'woman', label: 'женщина' },
+    { key: 'gay', label: 'гей' },
+    { key: 'hetero', label: 'натурал' },
+    { key: 'man', label: 'мужчина' },
+  ];
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
@@ -44,13 +52,22 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-dark-900 p-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-white tracking-tight">gchat</h1>
+    <div
+      className="fixed inset-0 z-[200] overflow-x-hidden overflow-y-scroll overscroll-y-contain bg-dark-900 [-webkit-overflow-scrolling:touch]"
+      style={{
+        paddingTop: 'max(0.75rem, env(safe-area-inset-top))',
+        touchAction: 'pan-y',
+        WebkitOverflowScrolling: 'touch',
+      }}
+    >
+      {/* min-h-full + нижний запас: иначе на iOS длинная форма «обрезается» у второго вопроса */}
+      <div className="w-full min-h-full flex flex-col items-stretch sm:items-center sm:justify-center px-4 pb-[max(8rem,env(safe-area-inset-bottom))] pt-2 sm:py-8">
+        <div className="w-full max-w-md mx-auto shrink-0 sm:my-auto">
+        <div className="text-center mb-6 sm:mb-8">
+          <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight">gchat</h1>
         </div>
 
-        <div className="bg-dark-800 rounded-2xl p-8 border border-dark-600 shadow-2xl">
+        <div className="bg-dark-800 rounded-2xl p-5 sm:p-8 border border-dark-600 shadow-2xl overflow-visible">
           <div className="flex mb-6 bg-dark-700 rounded-xl p-1">
             <button
               type="button"
@@ -122,7 +139,7 @@ export default function AuthPage() {
             </div>
 
             {!isLogin && (
-              <div className="space-y-4 pt-2 border-t border-dark-600">
+              <div className="space-y-4 pt-2 border-t border-dark-600 scroll-mt-4 scroll-pb-24">
                 <label className="flex items-start gap-3 cursor-pointer p-3 rounded-xl bg-dark-700/60 border border-red-500/25">
                   <input
                     type="checkbox"
@@ -156,26 +173,32 @@ export default function AuthPage() {
                       </label>
                     </div>
                     <div>
-                      <p className="text-xs text-slate-400 mb-2">3. Вычеркните лишнее (можно несколько): мужчина, натурал, гей, женщина</p>
-                      <div className="grid grid-cols-2 gap-2 text-xs text-slate-300">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="checkbox" checked={q3.man} onChange={() => toggleQ3('man')} className="accent-accent" />
-                          Мужчина
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="checkbox" checked={q3.hetero} onChange={() => toggleQ3('hetero')} className="accent-accent" />
-                          Натурал
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="checkbox" checked={q3.gay} onChange={() => toggleQ3('gay')} className="accent-accent" />
-                          Гей
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="checkbox" checked={q3.woman} onChange={() => toggleQ3('woman')} className="accent-accent" />
-                          Женщина
-                        </label>
+                      <p className="text-xs text-slate-400 mb-2">3. Вычеркни лишнее (нажми по слову — появится зачёркивание):</p>
+                      <div className="flex flex-wrap items-baseline justify-center gap-y-2 text-sm text-slate-200 leading-relaxed px-0.5">
+                        {q3Words.map((w, i) => (
+                          <span key={w.key} className="inline-flex items-baseline">
+                            {i > 0 && <span className="text-slate-500 select-none">,&nbsp;</span>}
+                            <button
+                              type="button"
+                              onClick={() => toggleQ3(w.key)}
+                              className="group relative mx-0.5 px-0.5 py-0.5 rounded transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                            >
+                              <span
+                                className={`relative z-[1] transition-colors duration-300 ${q3[w.key] ? 'text-slate-500' : 'text-slate-100'}`}
+                              >
+                                {w.label}
+                              </span>
+                              <span
+                                aria-hidden
+                                className={`pointer-events-none absolute left-0 right-0 top-[54%] h-[2px] rounded-full bg-red-400 origin-left transition-transform duration-300 ease-out ${
+                                  q3[w.key] ? 'scale-x-100' : 'scale-x-0'
+                                }`}
+                              />
+                            </button>
+                          </span>
+                        ))}
                       </div>
-                      <p className="text-[10px] text-slate-600 mt-2">Отметь строки, которые нужно вычеркнуть.</p>
+                      <p className="text-[10px] text-slate-500 mt-2 text-center">Слова через запятую — касание переключает зачёркивание.</p>
                     </div>
                   </>
                 )}
@@ -185,7 +208,7 @@ export default function AuthPage() {
             <button
               type="submit"
               disabled={loading || (!isLogin && !affirmQuiz)}
-              className="w-full py-3 bg-accent hover:bg-accent-hover text-white font-medium rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-accent/25"
+              className="w-full py-3.5 sm:py-3 bg-accent hover:bg-accent-hover text-white font-medium rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-accent/25 min-h-[48px]"
             >
               {loading ? (
                 <span className="inline-flex items-center gap-2">
@@ -200,6 +223,8 @@ export default function AuthPage() {
             </button>
           </form>
         </div>
+        </div>
+        <div className="shrink-0 h-10 sm:h-6" aria-hidden />
       </div>
     </div>
   );
