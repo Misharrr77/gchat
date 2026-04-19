@@ -181,6 +181,7 @@ app.get('/api/conversations', auth, (req, res) => {
       (SELECT type FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_type,
       (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_at,
       (SELECT sender_id FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_sender_id,
+      (SELECT post_as_channel FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_post_as_channel,
       (SELECT COUNT(*) FROM messages m
         WHERE m.conversation_id = c.id
         AND m.sender_id != ?

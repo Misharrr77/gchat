@@ -20,6 +20,11 @@ function chatListSubtitle(c: Conversation, myId?: string) {
     return 'Нет сообщений';
   }
   const display = (c.last_message ?? '').trim() || '…';
+  const pac = c.last_message_post_as_channel;
+  const channelAsOfficial = c.type === 'channel' && pac !== 0;
+  if (channelAsOfficial && (c.name || '').trim()) {
+    return `${c.name}: ${display}`;
+  }
   if (myId && c.last_message_sender_id === myId) return `Вы: ${display}`;
   if (c.type !== 'direct' && c.last_message_sender_id) {
     const sender = c.members?.find(x => x.id === c.last_message_sender_id);

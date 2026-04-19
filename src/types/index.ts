@@ -28,6 +28,8 @@ export interface Conversation {
   last_message_type: string | null;
   last_message_at: string | null;
   last_message_sender_id: string | null;
+  /** 0 — от себя, 1/NULL — от лица канала (последнее сообщение в списке) */
+  last_message_post_as_channel?: number | null;
   unread_count?: number;
   /** 1 = темы включены (только группа) */
   topics_enabled?: number;

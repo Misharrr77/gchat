@@ -126,7 +126,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       const d = await api.conversations.list();
-      setConversations(d.conversations);
+      const activeId = activeRef.current?.id;
+      /** Пока открыт чат, не даём устаревшему ответу refresh затереть нулевой unread после markRead */
+      const next =
+        activeId != null
+          ? d.conversations.map(c => (c.id === activeId ? { ...c, unread_count: 0 } : c))
+          : d.conversations;
+      setConversations(next);
     } catch {}
     setLoadingConvs(false);
   }, []);
@@ -136,6 +142,38 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const d = await api.stories.list();
       setStories(d.stories);
     } catch {}
+  }, []);
+
+  const refreshPins = useCallback(async () => {
+    const cid = activeRef.current?.id;
+    if (!cid) {
+      setPins([]);
+      return;
+    }
+    try {
+      const d = await api.conversations.pins(cid);
+      setPins(d.pins || []);
+    } catch {
+      setPins([]);
+    }
+  }, []);
+
+  const syncActiveChatMessages = useCallback(() => {
+    const cid = activeRef.current?.id;
+    const conv = activeRef.current;
+    if (!cid || !conv) return;
+    if (conv.type === 'group' && conv.topics_enabled && !activeTopicIdRef.current) return;
+    const topicOpts =
+      conv.type === 'group' && conv.topics_enabled && activeTopicIdRef.current
+        ? { topicId: activeTopicIdRef.current }
+        : {};
+    api.messages
+      .list(cid, topicOpts)
+      .then(d => {
+        if (activeRef.current?.id !== cid) return;
+        setMessages(d.messages);
+      })
+      .catch(() => {});
   }, []);
 
   // Main socket effect - connect and subscribe
@@ -167,10 +205,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     socket.off('story:new');
     socket.off('pins:updated');
 
-    socket.on('connect', () => {
+    const syncAfterSocketConnect = () => {
       console.log('[GChat] Socket connected, id:', socket.id, 'transport:', socket.io.engine.transport.name);
       setSocketOk(true);
-    });
+      void refresh();
+      syncActiveChatMessages();
+      void refreshPins();
+    };
+
+    socket.on('connect', syncAfterSocketConnect);
 
     socket.on('disconnect', (reason) => {
       console.log('[GChat] Socket disconnected:', reason);
@@ -191,6 +234,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             last_message_type: msg.type,
             last_message_at: msg.created_at,
             last_message_sender_id: msg.sender_id,
+            last_message_post_as_channel: msg.post_as_channel ?? null,
             unread_count: unread,
           };
         });
@@ -300,7 +344,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setPins(nextPins || []);
     });
 
-    refresh();
+    if (socket.connected) syncAfterSocketConnect();
+    else void refresh();
     refreshStories();
 
     return () => {
@@ -319,7 +364,27 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       socket.off('story:new');
       socket.off('pins:updated');
     };
-  }, [user?.id, refresh, refreshStories, updateUser]);
+  }, [user?.id, refresh, refreshStories, updateUser, syncActiveChatMessages, refreshPins]);
+
+  useEffect(() => {
+    const onResume = () => {
+      void refresh();
+      syncActiveChatMessages();
+      void refreshPins();
+    };
+    const onVis = () => {
+      if (document.visibilityState === 'visible') onResume();
+    };
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) onResume();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('pageshow', onPageShow as EventListener);
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('pageshow', onPageShow as EventListener);
+    };
+  }, [refresh, syncActiveChatMessages, refreshPins]);
 
   useEffect(() => {
     if (!active?.id || !user?.id) return;
@@ -359,20 +424,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }, 4000);
     return () => clearInterval(interval);
   }, [active?.id, activeTopicId, user?.id]);
-
-  const refreshPins = useCallback(async () => {
-    const cid = activeRef.current?.id;
-    if (!cid) {
-      setPins([]);
-      return;
-    }
-    try {
-      const d = await api.conversations.pins(cid);
-      setPins(d.pins || []);
-    } catch {
-      setPins([]);
-    }
-  }, []);
 
   useEffect(() => {
     refreshPins();
