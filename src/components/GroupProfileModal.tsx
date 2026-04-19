@@ -7,6 +7,7 @@ import { X, Edit3, Camera, Users, Radio, Shield, UserMinus, UserPlus, LogOut, Se
 import { Conversation, GroupTopic, User } from '../types';
 import { topicPreviewSubtitle } from '../lib/topicPreviewSubtitle';
 import { formatKaliningradListTime } from '../lib/datetime';
+import { formatSubscriberCount } from '../lib/formatRu';
 
 export default function GroupProfileModal({
   conversation: conv,
@@ -35,6 +36,8 @@ export default function GroupProfileModal({
   const [newTopicName, setNewTopicName] = useState('');
   const [renameTopicId, setRenameTopicId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
+  const [inviteLoading, setInviteLoading] = useState(false);
 
   useEffect(() => {
     setTopicsEnabled(!!conv.topics_enabled);
@@ -154,6 +157,19 @@ export default function GroupProfileModal({
   const showMemberList = conv.type === 'group' || isChannelOwner;
   const canManageMembers = conv.type === 'group' ? isAdmin : isChannelOwner;
 
+  useEffect(() => {
+    if (conv.is_public || !canManageMembers) {
+      setInviteCode(null);
+      return;
+    }
+    setInviteLoading(true);
+    api.conversations
+      .invite(conv.id)
+      .then(d => setInviteCode(d.code))
+      .catch(() => setInviteCode(null))
+      .finally(() => setInviteLoading(false));
+  }, [conv.id, conv.is_public, canManageMembers]);
+
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
       <div className="w-full sm:max-w-md bg-dark-800 rounded-t-2xl sm:rounded-2xl border-t sm:border border-dark-600 shadow-2xl overflow-hidden max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
@@ -172,12 +188,12 @@ export default function GroupProfileModal({
               {isChannel ? <Radio size={13} className="text-accent" /> : <Users size={13} className="text-accent" />}
               <h3 className="text-base font-bold text-white truncate drop-shadow-lg">{conv.name}</h3>
             </div>
-            <p className={`text-xs drop-shadow ${isChannel && !isChannelOwner ? 'text-slate-400 tabular-nums' : 'text-slate-300'}`}>
+            <p className={`text-xs drop-shadow ${isChannel && !isChannelOwner ? 'text-slate-400' : 'text-slate-300'}`}>
               {isChannel ? (
                 isChannelOwner ? (
                   <>{conv.member_count} подписчиков · {conv.is_public ? 'Публичный' : 'Приватный'}</>
                 ) : (
-                  conv.member_count
+                  formatSubscriberCount(conv.member_count)
                 )
               ) : (
                 <>{conv.member_count} уч. · {conv.is_public ? 'Публичный' : 'Приватный'}</>
@@ -204,6 +220,30 @@ export default function GroupProfileModal({
           ) : (
             <div className="p-5">
               {conv.description && <p className="text-sm text-slate-300 mb-4">{conv.description}</p>}
+
+              {!conv.is_public && canManageMembers && (conv.type === 'group' || conv.type === 'channel') && (
+                <div className="mb-5 p-3 rounded-xl bg-dark-700/50 border border-dark-600/80">
+                  <p className="text-xs font-medium text-slate-300 mb-2">Приглашение по ссылке</p>
+                  {inviteLoading ? (
+                    <p className="text-xs text-slate-500">Готовлю ссылку…</p>
+                  ) : inviteCode ? (
+                    <>
+                      <p className="text-[11px] text-slate-400 break-all mb-2">{`${typeof window !== 'undefined' ? window.location.origin : ''}/join/${inviteCode}`}</p>
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-accent hover:underline"
+                        onClick={() =>
+                          navigator.clipboard.writeText(`${window.location.origin}/join/${inviteCode}`)
+                        }
+                      >
+                        Скопировать ссылку
+                      </button>
+                    </>
+                  ) : (
+                    <p className="text-xs text-slate-500">Не удалось создать ссылку</p>
+                  )}
+                </div>
+              )}
 
               {conv.type === 'group' && isAdmin && (
                 <div className="mb-6 p-3 rounded-xl bg-dark-700/50 border border-dark-600/80">

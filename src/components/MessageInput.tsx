@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useChat } from '../contexts/ChatContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { api } from '../lib/api';
 import { getSocket } from '../lib/socket';
@@ -12,8 +13,10 @@ import ReplyQuotePreview from './ReplyQuotePreview';
 const HEARTBEAT_MS = 2200;
 
 export default function MessageInput() {
+  const { user } = useAuth();
   const { active, sendMessage, replyTo, setReplyTo } = useChat();
   const { settings } = useSettings();
+  const msgMaxLen = user?.restricted ? 280 : undefined;
   const isChannel = active?.type === 'channel';
   const [postFromChannel, setPostFromChannel] = useState(true);
   const [text, setText] = useState('');
@@ -207,6 +210,7 @@ export default function MessageInput() {
         <input ref={vidRef} type="file" accept="video/*" className="hidden" onChange={e => handleFile(e, 'video')} />
         <textarea
           value={text}
+          maxLength={msgMaxLen}
           onChange={e => handleChange(e.target.value)}
           onBlur={() => { stopTyping(); }}
           onFocus={() => { if (text.trim()) startTypingHeartbeat(); }}
@@ -219,6 +223,9 @@ export default function MessageInput() {
           <Send size={18} />
         </button>
       </form>
+      {!!user?.restricted && (
+        <p className="px-4 pb-2 text-[10px] text-slate-500 text-center">Ограниченный аккаунт: текст до 280 символов за сообщение.</p>
+      )}
     </div>
   );
 }

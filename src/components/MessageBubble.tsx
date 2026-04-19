@@ -7,6 +7,7 @@ import ChatVideo from './media/ChatVideo';
 import ChatAudio from './media/ChatAudio';
 import ReplyQuotePreview from './ReplyQuotePreview';
 import { formatKaliningradClock } from '../lib/datetime';
+import { Check, CheckCheck } from 'lucide-react';
 
 interface Props {
   message: Message;
@@ -16,6 +17,9 @@ interface Props {
   isSelected?: boolean;
   onSelect?: () => void;
   onToggleReaction?: (emoji: string) => void;
+  /** Личный чат: время последнего прочтения собеседником */
+  dmPeerLastReadAt?: string | null;
+  showReadReceipt?: boolean;
 }
 
 function aggReactions(msg: Message, myId: string | undefined) {
@@ -38,6 +42,8 @@ export default function MessageBubble({
   isSelected,
   onSelect,
   onToggleReaction,
+  dmPeerLastReadAt,
+  showReadReceipt,
 }: Props) {
   const { user } = useAuth();
   const isMine = message.sender_id === user?.id;
@@ -52,13 +58,19 @@ export default function MessageBubble({
 
   const bubbleClass = asOfficial
     ? isMine
-      ? 'bg-gradient-to-br from-accent via-accent to-indigo-600 text-white rounded-br-md ring-1 ring-white/20 shadow-lg shadow-black/25'
-      : 'bg-dark-700 text-slate-100 rounded-bl-md border border-dark-500/80 ring-1 ring-accent/25'
+      ? 'chat-bubble-mine bg-gradient-to-br from-accent via-accent to-indigo-600 rounded-br-md ring-1 ring-white/20 shadow-lg shadow-black/25'
+      : 'chat-bubble-theirs bg-dark-700 rounded-bl-md border border-dark-500/80 ring-1 ring-accent/25'
     : isMine
-      ? 'bg-accent text-white rounded-br-md'
-      : 'bg-dark-700 text-slate-100 rounded-bl-md';
+      ? 'chat-bubble-mine bg-accent rounded-br-md'
+      : 'chat-bubble-theirs bg-dark-700 rounded-bl-md';
 
   const ringSelected = isSelected ? ' ring-2 ring-accent ring-offset-2 ring-offset-dark-900' : '';
+
+  const readByPeer =
+    showReadReceipt &&
+    isMine &&
+    dmPeerLastReadAt &&
+    new Date(dmPeerLastReadAt).getTime() >= new Date(message.created_at).getTime();
 
   return (
     <div
@@ -99,7 +111,7 @@ export default function MessageBubble({
             <span className="opacity-90">{realName}</span>
           </p>
         )}
-        <div className={`rounded-2xl px-3.5 py-2.5 ${bubbleClass}${ringSelected}`}>
+        <div className={`rounded-2xl px-3.5 py-2.5 chat-bubble-mine-inner ${bubbleClass}${ringSelected}`}>
           {message.reply_preview && (
             <div
               className={`mb-2 rounded-lg px-2.5 py-2 border-l-2 border-accent/90 bg-black/20 pointer-events-auto ${
@@ -137,9 +149,22 @@ export default function MessageBubble({
               <ChatVideo src={message.media_url} videoClassName="max-h-64 sm:max-h-72 w-full object-contain" />
             </div>
           )}
-          {message.content && <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>}
-          <div className={`flex items-center justify-between gap-2 mt-1.5 pointer-events-none ${isMine ? 'text-white/50' : 'text-slate-500'}`}>
+          {message.content && (
+            <p className={`text-sm whitespace-pre-wrap break-words leading-relaxed ${isMine ? '' : 'chat-bubble-theirs'}`}>{message.content}</p>
+          )}
+          <div
+            className={`flex items-center justify-end gap-1 mt-1.5 pointer-events-none ${isMine ? 'text-white/50' : 'text-slate-500'}`}
+          >
             <p className="text-[10px]">{time}</p>
+            {showReadReceipt && isMine && (
+              <span className="inline-flex items-center opacity-90" title={readByPeer ? 'Прочитано' : 'Доставлено'}>
+                {readByPeer ? (
+                  <CheckCheck size={13} className="text-sky-300 shrink-0" strokeWidth={2.5} />
+                ) : (
+                  <Check size={13} className="text-white/70 shrink-0" strokeWidth={2.5} />
+                )}
+              </span>
+            )}
           </div>
         </div>
         {agg.length > 0 && onToggleReaction && (

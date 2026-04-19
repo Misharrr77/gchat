@@ -1,4 +1,5 @@
 import { useRef, useEffect, useLayoutEffect, useState, useMemo } from 'react';
+import { formatSubscriberCount } from '../lib/formatRu';
 import { formatChatDaySeparatorLabel, getKaliningradDateKey } from '../lib/datetime';
 import { useAuth } from '../contexts/AuthContext';
 import { useChat } from '../contexts/ChatContext';
@@ -38,11 +39,13 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
     selectGroupTopic,
     loadOlderMessages,
     loadingOlder,
+    directPeerReadAt,
   } = useChat();
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevFirstMsgIdRef = useRef<string | undefined>(undefined);
   const suppressAutoScrollUntil = useRef(0);
+  const prependScrollKeepRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
   const [imgPreview, setImgPreview] = useState<string | null>(null);
   const [showGroupProfile, setShowGroupProfile] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -50,6 +53,25 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
   useEffect(() => {
     prevFirstMsgIdRef.current = undefined;
   }, [active?.id, activeTopicId]);
+
+  useLayoutEffect(() => {
+    if (loadingOlder && scrollRef.current) {
+      prependScrollKeepRef.current = {
+        scrollHeight: scrollRef.current.scrollHeight,
+        scrollTop: scrollRef.current.scrollTop,
+      };
+    }
+  }, [loadingOlder]);
+
+  useLayoutEffect(() => {
+    if (!loadingOlder && prependScrollKeepRef.current && scrollRef.current) {
+      const el = scrollRef.current;
+      const prev = prependScrollKeepRef.current;
+      const delta = el.scrollHeight - prev.scrollHeight;
+      el.scrollTop = prev.scrollTop + delta;
+      prependScrollKeepRef.current = null;
+    }
+  }, [loadingOlder, messages]);
 
   /** Сразу вниз без анимации; при подгрузке старых сверху — не дёргать вниз */
   useLayoutEffect(() => {
@@ -125,7 +147,7 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
     }
     if (isDirect) return <span className={isOnline ? 'text-green-400' : 'text-slate-500'}>{isOnline ? 'в сети' : 'не в сети'}</span>;
     if (isChannel && !isChannelOwner) {
-      return <span className="text-slate-400 tabular-nums">{active.member_count}</span>;
+      return <span className="text-slate-400">{formatSubscriberCount(active.member_count)}</span>;
     }
     return (
       <span className="text-slate-400">
@@ -308,6 +330,8 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
                   isSelected={selectedId === row.msg.id}
                   onSelect={() => pickMessage(row.msg)}
                   onToggleReaction={emoji => toggleReaction(row.msg.id, emoji)}
+                  showReadReceipt={isDirect}
+                  dmPeerLastReadAt={directPeerReadAt}
                 />
               )
             )

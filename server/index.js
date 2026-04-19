@@ -48,7 +48,14 @@ const storage = multer.diskStorage({
 const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
 
 const onlineUsers = new Map();
-const UF = 'id, username, display_name, avatar, video_avatar, profile_header, bio, status, is_online, last_seen, created_at';
+const UF = 'id, username, display_name, avatar, video_avatar, profile_header, bio, status, is_online, last_seen, created_at, quiz_warning, restricted';
+
+function randomInviteCode() {
+  const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+  let s = '';
+  for (let i = 0; i < 10; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
 
 function auth(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
@@ -59,26 +66,48 @@ function auth(req, res, next) {
 
 // ── Auth ──
 
+function validateQuizAnswers(body) {
+  const affirm = !!body?.affirmQuiz;
+  const q1 = String(body?.quiz?.q1 ?? '').trim().toLowerCase();
+  const q2 = String(body?.quiz?.q2 ?? '').trim().toLowerCase();
+  const q3 = body?.quiz?.q3;
+  const ok1 = q1.includes('асфальт');
+  const ok2 = q2 === 'b';
+  let ok3 = false;
+  if (Array.isArray(q3)) {
+    const s = new Set(q3.map(x => String(x).toLowerCase()));
+    ok3 = s.size === 2 && s.has('woman') && s.has('hetero');
+  }
+  const allOk = affirm && ok1 && ok2 && ok3;
+  return { allOk, failed: !allOk };
+}
+
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { username, password, displayName } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Введи логин и пароль' });
+    if (!req.body?.affirmQuiz) return res.status(400).json({ error: 'Подтверди условие регистрации' });
     if (username.length < 3) return res.status(400).json({ error: 'Минимум 3 символа' });
     if (password.length < 6) return res.status(400).json({ error: 'Пароль минимум 6 символов' });
     if (!/^[a-zA-Z0-9_]+$/.test(username)) return res.status(400).json({ error: 'Только латиница, цифры и _' });
     const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username.toLowerCase());
     if (existing) return res.status(400).json({ error: 'Имя уже занято' });
+    const { allOk, failed } = validateQuizAnswers(req.body);
     const hash = await bcrypt.hash(password, 10);
     const id = uuidv4();
     const email = `${username.toLowerCase()}@gchat.local`;
+    const qw = failed ? 1 : 0;
+    const rest = failed ? 1 : 0;
     try {
-      db.prepare('INSERT INTO users (id, username, email, password_hash, display_name) VALUES (?, ?, ?, ?, ?)').run(id, username.toLowerCase(), email, hash, displayName || username);
+      db.prepare(
+        'INSERT INTO users (id, username, email, password_hash, display_name, quiz_warning, restricted) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(id, username.toLowerCase(), email, hash, displayName || username, qw, rest);
     } catch {
       db.prepare('INSERT INTO users (id, username, password_hash, display_name) VALUES (?, ?, ?, ?)').run(id, username.toLowerCase(), hash, displayName || username);
     }
     const token = jwt.sign({ id, username: username.toLowerCase() }, JWT_SECRET, { expiresIn: '30d' });
     const user = db.prepare(`SELECT ${UF} FROM users WHERE id = ?`).get(id);
-    res.json({ token, user });
+    res.json({ token, user, quizOk: allOk });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -232,6 +261,14 @@ app.post('/api/conversations/:id/read', auth, (req, res) => {
     INSERT INTO conversation_reads (user_id, conversation_id, last_read_at) VALUES (?, ?, ?)
     ON CONFLICT(user_id, conversation_id) DO UPDATE SET last_read_at = excluded.last_read_at
   `).run(req.user.id, cid, latest.t);
+  const conv = db.prepare('SELECT type FROM conversations WHERE id = ?').get(cid);
+  if (conv?.type === 'direct') {
+    const others = db.prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ? AND user_id != ?').all(cid, req.user.id);
+    others.forEach(({ user_id }) => {
+      const socks = onlineUsers.get(user_id);
+      if (socks) socks.forEach(sid => io.to(sid).emit('dm:peerRead', { conversationId: cid, lastReadAt: latest.t }));
+    });
+  }
   res.json({ ok: true });
 });
 
@@ -260,6 +297,8 @@ app.post('/api/conversations', auth, (req, res) => {
 });
 
 app.post('/api/conversations/group', auth, (req, res) => {
+  const lim = db.prepare('SELECT restricted FROM users WHERE id = ?').get(req.user.id);
+  if (lim?.restricted) return res.status(403).json({ error: 'Ограниченный аккаунт не может создавать группы' });
   const { name, memberIds = [], avatar, description, isPublic } = req.body;
   if (!name) return res.status(400).json({ error: 'Название обязательно' });
   const id = uuidv4();
@@ -280,6 +319,8 @@ app.post('/api/conversations/group', auth, (req, res) => {
 });
 
 app.post('/api/conversations/channel', auth, (req, res) => {
+  const limC = db.prepare('SELECT restricted FROM users WHERE id = ?').get(req.user.id);
+  if (limC?.restricted) return res.status(403).json({ error: 'Ограниченный аккаунт не может создавать каналы' });
   const { name, avatar, description, isPublic } = req.body;
   if (!name) return res.status(400).json({ error: 'Название обязательно' });
   const id = uuidv4();
@@ -437,8 +478,17 @@ app.delete('/api/conversations/:id/members/:userId', auth, (req, res) => {
   if (!isSelf) {
     if (conv.type === 'channel') {
       if (req.user.id !== conv.creator_id) return res.status(403).json({ error: 'Нет прав' });
-    } else if (!myRole || myRole.role === 'member') {
-      return res.status(403).json({ error: 'Нет прав' });
+    } else {
+      const target = db.prepare('SELECT role FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conv.id, req.params.userId);
+      if (!target) return res.status(404).json({ error: 'Not found' });
+      if (req.params.userId === conv.creator_id) return res.status(403).json({ error: 'Нельзя исключить владельца' });
+      if (req.user.id === conv.creator_id) {
+        /* владелец может исключить любого кроме себя — уже не self */
+      } else if (myRole?.role === 'admin') {
+        if (target.role === 'admin') return res.status(403).json({ error: 'Можно исключать только обычных участников' });
+      } else {
+        return res.status(403).json({ error: 'Нет прав' });
+      }
     }
   }
   db.prepare('DELETE FROM conversation_members WHERE conversation_id = ? AND user_id = ?').run(conv.id, req.params.userId);
@@ -455,6 +505,47 @@ app.post('/api/conversations/:id/join', auth, (req, res) => {
   const exists = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conv.id, req.user.id);
   if (!exists) db.prepare('INSERT INTO conversation_members (conversation_id, user_id, role) VALUES (?, ?, ?)').run(conv.id, req.user.id, 'member');
   res.json({ conversation: enrichConversation(db.prepare('SELECT * FROM conversations WHERE id = ?').get(conv.id), req.user.id) });
+});
+
+app.post('/api/conversations/:id/invite', auth, (req, res) => {
+  try {
+    const conv = db.prepare('SELECT * FROM conversations WHERE id = ?').get(req.params.id);
+    if (!conv) return res.status(404).json({ error: 'Not found' });
+    if (conv.is_public) return res.status(400).json({ error: 'Для приватных чатов и групп' });
+    const myRole = db.prepare('SELECT role FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conv.id, req.user.id);
+    if (conv.type === 'channel') {
+      if (req.user.id !== conv.creator_id) return res.status(403).json({ error: 'Только владелец' });
+    } else if (!myRole || myRole.role !== 'admin') {
+      return res.status(403).json({ error: 'Нет прав' });
+    }
+    let inv = db.prepare('SELECT code FROM conversation_invites WHERE conversation_id = ?').get(conv.id);
+    if (!inv) {
+      const code = randomInviteCode();
+      db.prepare('INSERT INTO conversation_invites (code, conversation_id, created_by) VALUES (?, ?, ?)').run(code, conv.id, req.user.id);
+      inv = { code };
+    }
+    res.json({ code: inv.code });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/invite/:code', auth, (req, res) => {
+  const inv = db.prepare('SELECT * FROM conversation_invites WHERE code = ?').get(req.params.code);
+  if (!inv) return res.status(404).json({ error: 'Неверная ссылка' });
+  const c = db.prepare('SELECT id, name, type, avatar, is_public FROM conversations WHERE id = ?').get(inv.conversation_id);
+  if (!c) return res.status(404).json({ error: 'Нет' });
+  res.json({ conversation: c });
+});
+
+app.post('/api/invite/:code/join', auth, (req, res) => {
+  const inv = db.prepare('SELECT * FROM conversation_invites WHERE code = ?').get(req.params.code);
+  if (!inv) return res.status(404).json({ error: 'Неверная ссылка' });
+  const c = db.prepare('SELECT * FROM conversations WHERE id = ?').get(inv.conversation_id);
+  if (!c) return res.status(404).json({ error: 'Нет' });
+  const ex = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(c.id, req.user.id);
+  if (!ex) db.prepare('INSERT INTO conversation_members (conversation_id, user_id, role) VALUES (?, ?, ?)').run(c.id, req.user.id, 'member');
+  res.json({ conversation: enrichConversation(db.prepare('SELECT * FROM conversations WHERE id = ?').get(c.id), req.user.id) });
 });
 
 app.post('/api/conversations/:id/members', auth, (req, res) => {
@@ -672,7 +763,16 @@ app.get('/api/messages/:conversationId', auth, (req, res) => {
     const ids = rows.map(r => r.id);
     const reactMap = fetchReactionsForMessages(ids);
     const messages = rows.map(r => shapeDbMessage(r, reactMap));
-    res.json({ messages });
+    const convMeta = db.prepare('SELECT type FROM conversations WHERE id = ?').get(conversationId);
+    let dmPeerLastReadAt = null;
+    if (convMeta?.type === 'direct') {
+      const other = db.prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ? AND user_id != ?').get(conversationId, uid);
+      if (other) {
+        const rr = db.prepare('SELECT last_read_at FROM conversation_reads WHERE conversation_id = ? AND user_id = ?').get(conversationId, other.user_id);
+        dmPeerLastReadAt = rr?.last_read_at || null;
+      }
+    }
+    res.json({ messages, dmPeerLastReadAt });
   } catch (err) {
     console.error('[API] GET messages', err);
     res.status(500).json({ error: err.message || 'Internal server error' });
@@ -704,6 +804,8 @@ app.post('/api/messages', auth, (req, res) => {
   try {
     const { conversationId, content, type = 'text', mediaUrl, replyToId, postAsChannel, topicId: bodyTopicId } = req.body;
     if (!conversationId) return res.status(400).json({ error: 'conversationId required' });
+    const usrLim = db.prepare('SELECT restricted FROM users WHERE id = ?').get(req.user.id);
+    if (usrLim?.restricted && String(content || '').length > 280) return res.status(400).json({ error: 'Слишком длинное сообщение для ограниченного аккаунта' });
     const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conversationId, req.user.id);
     if (!member) return res.status(403).json({ error: 'Not a member' });
     const conv = db.prepare('SELECT type, topics_enabled FROM conversations WHERE id = ?').get(conversationId);

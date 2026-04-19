@@ -26,6 +26,8 @@ export interface AppSettings {
   vibrateOnNotify: boolean;
   sendOnEnter: SendOnEnterMode;
   sidebarWidth: 'normal' | 'wide';
+  /** Один список: личные, группы и каналы вместе по времени */
+  unifiedChatList: boolean;
 }
 
 const defaults: AppSettings = {
@@ -39,6 +41,7 @@ const defaults: AppSettings = {
   vibrateOnNotify: false,
   sendOnEnter: 'send',
   sidebarWidth: 'normal',
+  unifiedChatList: false,
 };
 
 function migrateTheme(parsed: Partial<AppSettings>): ThemeMode {
@@ -79,11 +82,14 @@ function saveStored(s: AppSettings) {
 
 export function applySettingsToDom(s: AppSettings) {
   const root = document.documentElement;
-  const h = s.accentHue;
-  root.style.setProperty('--accent', `${h} 91% 59%`);
-  root.style.setProperty('--accent-hover', `${h} 91% 50%`);
-  root.style.setProperty('--accent-light', `${h} 91% 68%`);
-  root.style.setProperty('--accent-dark', `${h} 91% 43%`);
+  const h = ((s.accentHue % 360) + 360) % 360;
+  /** Чуть ниже яркость — белый текст на акценте читается и в светлой теме */
+  const L = 52;
+  const S = 88;
+  root.style.setProperty('--accent', `${h} ${S}% ${L}%`);
+  root.style.setProperty('--accent-hover', `${h} ${S}% ${L - 7}%`);
+  root.style.setProperty('--accent-light', `${h} ${S}% ${L + 10}%`);
+  root.style.setProperty('--accent-dark', `${h} ${S}% ${L - 12}%`);
   root.style.fontSize = `${16 * s.fontScale}px`;
   root.dataset.theme = s.theme;
   root.dataset.density = s.density;

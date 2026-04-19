@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useChat } from '../contexts/ChatContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { api } from '../lib/api';
 import Avatar from './Avatar';
 import StoriesBar from './StoriesBar';
@@ -86,14 +87,26 @@ export default function Sidebar({
 }: Props) {
   const { user } = useAuth();
   const { conversations, active, setActive, stories } = useChat();
+  const { settings } = useSettings();
+  const unifiedList = settings.unifiedChatList;
   const [tab, setTab] = useState<Tab>('direct');
   const [showSearch, setShowSearch] = useState(false);
   const [showCreate, setShowCreate] = useState<'group' | 'channel' | null>(null);
   const [showDiscover, setShowDiscover] = useState(false);
+  const [showUnifiedPlus, setShowUnifiedPlus] = useState(false);
   const [savedItems, setSavedItems] = useState<SavedListItem[]>([]);
   const [savedLoading, setSavedLoading] = useState(false);
 
-  const filtered = useMemo(() => conversations.filter(c => c.type === tab), [conversations, tab]);
+  const filtered = useMemo(() => {
+    let list = conversations.filter(c => (unifiedList ? true : c.type === tab));
+    if (unifiedList) {
+      list = [...list].sort(
+        (a, b) =>
+          new Date(b.last_message_at || b.created_at).getTime() - new Date(a.last_message_at || a.created_at).getTime()
+      );
+    }
+    return list;
+  }, [conversations, tab, unifiedList]);
 
   const handleSelect = (c: Conversation) => { setActive(c); onSelect(c); };
 
@@ -164,7 +177,14 @@ export default function Sidebar({
           </button>
         )}
         <button onClick={() => setShowDiscover(true)} className="p-2 hover:bg-dark-700 rounded-xl text-slate-400 hover:text-white transition"><Compass size={18} /></button>
-        <button onClick={() => tab === 'direct' ? setShowSearch(true) : setShowCreate(tab === 'channel' ? 'channel' : 'group')} className="p-2 hover:bg-dark-700 rounded-xl text-slate-400 hover:text-white transition"><Plus size={18} /></button>
+        <button
+          onClick={() =>
+            unifiedList ? setShowUnifiedPlus(true) : tab === 'direct' ? setShowSearch(true) : setShowCreate(tab === 'channel' ? 'channel' : 'group')
+          }
+          className="p-2 hover:bg-dark-700 rounded-xl text-slate-400 hover:text-white transition"
+        >
+          <Plus size={18} />
+        </button>
       </div>
 
       {onListModeChange && (
@@ -184,22 +204,31 @@ export default function Sidebar({
       )}
 
       {/* Stories */}
-      {tab === 'direct' && stories.length > 0 && <StoriesBar />}
+      {(unifiedList || tab === 'direct') && stories.length > 0 && <StoriesBar />}
 
       {/* Tabs */}
-      <div className="flex border-b border-dark-600 flex-shrink-0">
-        {tabBtn('direct', <MessageSquare size={14} />, 'Чаты')}
-        {tabBtn('group', <Users size={14} />, 'Группы')}
-        {tabBtn('channel', <Radio size={14} />, 'Каналы')}
-      </div>
+      {!unifiedList && (
+        <div className="flex border-b border-dark-600 flex-shrink-0">
+          {tabBtn('direct', <MessageSquare size={14} />, 'Чаты')}
+          {tabBtn('group', <Users size={14} />, 'Группы')}
+          {tabBtn('channel', <Radio size={14} />, 'Каналы')}
+        </div>
+      )}
 
       {/* Conversations list */}
       <div className="flex-1 overflow-y-auto min-h-0">
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-slate-500">
-            <p className="text-sm">{tab === 'direct' ? 'Нет чатов' : tab === 'group' ? 'Нет групп' : 'Нет каналов'}</p>
-            <button onClick={() => tab === 'direct' ? setShowSearch(true) : setShowCreate(tab === 'channel' ? 'channel' : 'group')} className="mt-2 text-xs text-accent hover:underline">
-              {tab === 'direct' ? 'Начать чат' : 'Создать'}
+            <p className="text-sm">
+              {unifiedList ? 'Ничего пока нет' : tab === 'direct' ? 'Нет чатов' : tab === 'group' ? 'Нет групп' : 'Нет каналов'}
+            </p>
+            <button
+              onClick={() =>
+                unifiedList ? setShowUnifiedPlus(true) : tab === 'direct' ? setShowSearch(true) : setShowCreate(tab === 'channel' ? 'channel' : 'group')
+              }
+              className="mt-2 text-xs text-accent hover:underline"
+            >
+              {unifiedList ? 'Добавить' : tab === 'direct' ? 'Начать чат' : 'Создать'}
             </button>
           </div>
         ) : filtered.map(c => (
@@ -227,6 +256,46 @@ export default function Sidebar({
         ))}
       </div>
 
+      {showUnifiedPlus && (
+        <div className="fixed inset-0 bg-black/60 z-[60] flex items-end sm:items-center justify-center" onClick={() => setShowUnifiedPlus(false)}>
+          <div
+            className="w-full sm:max-w-sm bg-dark-800 rounded-t-2xl sm:rounded-2xl border border-dark-600 p-4 space-y-2 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <p className="text-sm font-medium text-white mb-2">Что создать?</p>
+            <button
+              type="button"
+              className="w-full py-3 rounded-xl bg-dark-700 text-white text-sm hover:bg-dark-600 text-left px-4"
+              onClick={() => {
+                setShowUnifiedPlus(false);
+                setShowSearch(true);
+              }}
+            >
+              Личный чат
+            </button>
+            <button
+              type="button"
+              className="w-full py-3 rounded-xl bg-dark-700 text-white text-sm hover:bg-dark-600 text-left px-4"
+              onClick={() => {
+                setShowUnifiedPlus(false);
+                setShowCreate('group');
+              }}
+            >
+              Группа
+            </button>
+            <button
+              type="button"
+              className="w-full py-3 rounded-xl bg-dark-700 text-white text-sm hover:bg-dark-600 text-left px-4"
+              onClick={() => {
+                setShowUnifiedPlus(false);
+                setShowCreate('channel');
+              }}
+            >
+              Канал
+            </button>
+          </div>
+        </div>
+      )}
       {showSearch && <SearchModal onClose={() => setShowSearch(false)} />}
       {showCreate && <CreateGroupModal type={showCreate} onClose={() => setShowCreate(null)} />}
       {showDiscover && <DiscoverModal onClose={() => setShowDiscover(false)} onSelect={handleSelect} />}

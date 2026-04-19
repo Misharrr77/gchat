@@ -23,8 +23,13 @@ async function req(endpoint: string, opts: RequestInit = {}) {
 
 export const api = {
   auth: {
-    register: (body: { username: string; password: string; displayName?: string }) =>
-      req('/auth/register', { method: 'POST', body: JSON.stringify(body) }),
+    register: (body: {
+      username: string;
+      password: string;
+      displayName?: string;
+      affirmQuiz?: boolean;
+      quiz?: { q1: string; q2: string; q3: string[] };
+    }) => req('/auth/register', { method: 'POST', body: JSON.stringify(body) }),
     login: (body: { login: string; password: string }) =>
       req('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
     me: () => req('/auth/me'),
@@ -75,6 +80,12 @@ export const api = {
       }),
     topicDelete: (convId: string, topicId: string) =>
       req(`/conversations/${convId}/topics/${topicId}`, { method: 'DELETE' }),
+    invite: (id: string): Promise<{ code: string }> =>
+      req(`/conversations/${id}/invite`, { method: 'POST' }),
+  },
+  invites: {
+    preview: (code: string) => req(`/invite/${encodeURIComponent(code)}`),
+    join: (code: string) => req(`/invite/${encodeURIComponent(code)}/join`, { method: 'POST' }),
   },
   discover: (q: string) => req(`/discover?q=${encodeURIComponent(q)}`),
   saved: {

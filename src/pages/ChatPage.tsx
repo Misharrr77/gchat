@@ -38,7 +38,12 @@ export default function ChatPage() {
 
   return (
     <>
-      <div className="flex h-[100dvh] bg-dark-900 overflow-hidden">
+      {!!user?.quiz_warning && (
+        <div className="fixed top-0 left-0 right-0 z-[130] px-4 py-2 bg-red-950/95 text-red-100 text-[11px] text-center border-b border-red-500/40 shadow-lg">
+          Предупреждение аккаунта: проверка при регистрации не пройдена — часть возможностей ограничена.
+        </div>
+      )}
+      <div className={`flex h-[100dvh] bg-dark-900 overflow-hidden ${user?.quiz_warning ? 'pt-9' : ''}`}>
         {isDesktop ? (
           <>
             <div className={`${sidebarWidthClass} flex-shrink-0 border-r border-dark-600`}>

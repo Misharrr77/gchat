@@ -171,6 +171,19 @@ db.exec(`
 migrate('messages', 'topic_id', 'TEXT');
 migrate('conversations', 'topics_enabled', 'INTEGER DEFAULT 0');
 migrate('group_topics', 'pinned', 'INTEGER DEFAULT 0');
+migrate('users', 'quiz_warning', 'INTEGER DEFAULT 0');
+migrate('users', 'restricted', 'INTEGER DEFAULT 0');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS conversation_invites (
+    code TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL UNIQUE,
+    created_by TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+  );
+`);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS group_topics (

@@ -1,5 +1,5 @@
 import { useSettings, type AppSettings, type ThemeMode, type Density, type SendOnEnterMode } from '../contexts/SettingsContext';
-import { X, RotateCcw, Sun, Moon, Volume2, VolumeX, Vibrate, Type, Layout, MessageSquare, PanelLeft, Sparkles } from 'lucide-react';
+import { X, RotateCcw, Sun, Moon, Volume2, VolumeX, Vibrate, Type, Layout, MessageSquare, PanelLeft, Sparkles, Rows } from 'lucide-react';
 
 const THEME_OPTIONS: { v: ThemeMode; label: string; icon: React.ReactNode }[] = [
   { v: 'dark', label: 'Тёмная', icon: <Moon size={16} /> },
@@ -141,6 +141,16 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                 Шире
               </button>
             </div>
+
+            <button
+              type="button"
+              className={`w-full mt-4 ${chip} ${settings.unifiedChatList ? chipOn : chipOff}`}
+              onClick={() => field('unifiedChatList', !settings.unifiedChatList)}
+            >
+              <Rows size={16} />
+              Один список: без вкладок «чаты / группы / каналы»
+            </button>
+            <p className={`text-[11px] mt-2 ${hintText}`}>Всё в одной ленте, новые сверху по времени последнего сообщения.</p>
           </section>
 
           <section>

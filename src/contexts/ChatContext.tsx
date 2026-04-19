@@ -57,6 +57,8 @@ interface Ctx {
   selectGroupTopic: (topicId: string | null) => void;
   loadOlderMessages: () => Promise<void>;
   loadingOlder: boolean;
+  /** Прочитано собеседником (личный чат), для галочек */
+  directPeerReadAt: string | null;
 }
 
 const ChatContext = createContext<Ctx | null>(null);
@@ -95,6 +97,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [loadingOlder, setLoadingOlder] = useState(false);
   const activeTopicIdRef = useRef<string | null>(null);
   const loadingOlderRef = useRef(false);
+  const [directPeerReadAt, setDirectPeerReadAt] = useState<string | null>(null);
 
   useEffect(() => {
     activeRef.current = active;
@@ -176,6 +179,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       .then(d => {
         if (activeRef.current?.id !== cid) return;
         setMessages(d.messages);
+        const conv = activeRef.current;
+        if (conv?.type === 'direct') setDirectPeerReadAt((d as { dmPeerLastReadAt?: string }).dmPeerLastReadAt ?? null);
       })
       .catch(() => {});
   }, []);
@@ -208,6 +213,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     socket.off('user:typing:stop');
     socket.off('story:new');
     socket.off('pins:updated');
+    socket.off('dm:peerRead');
 
     const syncAfterSocketConnect = () => {
       console.log('[GChat] Socket connected, id:', socket.id, 'transport:', socket.io.engine.transport.name);
@@ -225,13 +231,23 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     });
 
     socket.on('message:new', (msg: Message) => {
-      const viewing = activeRef.current?.id === msg.conversation_id;
+      const activeChat = activeRef.current;
+      const viewing = activeChat?.id === msg.conversation_id;
       const fromOther = msg.sender_id !== userIdRef.current;
       const lastLine = lastMessagePreviewLine(msg.content, msg.type);
+      const wrongTopic =
+        !!activeChat &&
+        viewing &&
+        activeChat.type === 'group' &&
+        !!activeChat.topics_enabled &&
+        !!msg.topic_id &&
+        msg.topic_id !== activeTopicIdRef.current;
+      const effectivelyViewing = viewing && !wrongTopic;
+
       setConversations(p => {
         const u = p.map(c => {
           if (c.id !== msg.conversation_id) return c;
-          const unread = viewing ? 0 : (c.unread_count || 0) + (fromOther ? 1 : 0);
+          const unread = effectivelyViewing ? 0 : (c.unread_count || 0) + (fromOther ? 1 : 0);
           return {
             ...c,
             last_message: lastLine,
@@ -248,22 +264,28 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         );
       });
 
-      if (activeRef.current?.id === msg.conversation_id) {
-        const conv = activeRef.current;
+      if (activeChat?.id === msg.conversation_id) {
+        const conv = activeChat;
         if (conv.type === 'group' && conv.topics_enabled && msg.topic_id !== activeTopicIdRef.current) {
-          /* сообщение в другой теме — список обновлён выше */
+          /* другая тема — счётчик выше, ленту не трогаем */
         } else {
           setMessages(p => {
             if (p.some(m => m.id === msg.id)) return p;
             return [...p, msg];
           });
+          if (effectivelyViewing) api.conversations.markRead(msg.conversation_id).catch(() => {});
         }
-        api.conversations.markRead(msg.conversation_id).catch(() => {});
       }
 
       if (msg.sender_id !== userIdRef.current) {
         playNotificationSound();
         notifyNewMessageVibrate();
+      }
+    });
+
+    socket.on('dm:peerRead', ({ conversationId, lastReadAt }: { conversationId: string; lastReadAt: string }) => {
+      if (activeRef.current?.id === conversationId && activeRef.current?.type === 'direct') {
+        setDirectPeerReadAt(lastReadAt);
       }
     });
 
@@ -368,6 +390,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       socket.off('user:typing:stop');
       socket.off('story:new');
       socket.off('pins:updated');
+      socket.off('dm:peerRead');
     };
   }, [user?.id, refresh, refreshStories, updateUser, syncActiveChatMessages, refreshPins]);
 
@@ -423,6 +446,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             const current = messagesRef.current;
             const hasNew = d.messages.some((m: Message) => !current.some(c => c.id === m.id));
             if (hasNew) setMessages(d.messages);
+            const conv = activeRef.current;
+            if (conv?.type === 'direct') setDirectPeerReadAt((d as { dmPeerLastReadAt?: string }).dmPeerLastReadAt ?? null);
           })
           .catch(() => {});
       }
@@ -438,6 +463,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     if (!active) {
       setMessages([]);
       setPendingScrollMessageId(null);
+      setDirectPeerReadAt(null);
       return;
     }
     const cid = active.id;
@@ -463,6 +489,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       .then(d => {
         if (cancelled || activeRef.current?.id !== cid) return;
         setMessages(d.messages);
+        if (conv.type === 'direct') setDirectPeerReadAt((d as { dmPeerLastReadAt?: string }).dmPeerLastReadAt ?? null);
+        else setDirectPeerReadAt(null);
         if (anchor) setPendingScrollMessageId(anchor);
       })
       .catch(() => {})
@@ -518,6 +546,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const existing = new Set(messagesRef.current.map(m => m.id));
       const older = (d.messages as Message[]).filter(m => !existing.has(m.id));
       if (older.length) setMessages(prev => [...older, ...prev]);
+      if (conv.type === 'direct')
+        setDirectPeerReadAt((d as { dmPeerLastReadAt?: string }).dmPeerLastReadAt ?? null);
     } catch {}
     loadingOlderRef.current = false;
     setLoadingOlder(false);
@@ -599,6 +629,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         selectGroupTopic,
         loadOlderMessages,
         loadingOlder,
+        directPeerReadAt,
       }}
     >
       {children}

@@ -1,9 +1,10 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ChatProvider } from './contexts/ChatContext';
 import { SettingsProvider } from './contexts/SettingsContext';
 import AuthPage from './pages/AuthPage';
 import ChatPage from './pages/ChatPage';
+import JoinInvitePage from './pages/JoinInvitePage';
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -29,11 +30,18 @@ export default function App() {
         <SettingsProvider>
           <Routes>
             <Route path="/auth" element={<Public><AuthPage /></Public>} />
-            <Route path="/*" element={
-              <Protected>
-                <ChatProvider><ChatPage /></ChatProvider>
-              </Protected>
-            } />
+            <Route
+              element={
+                <Protected>
+                  <ChatProvider>
+                    <Outlet />
+                  </ChatProvider>
+                </Protected>
+              }
+            >
+              <Route index element={<ChatPage />} />
+              <Route path="join/:code" element={<JoinInvitePage />} />
+            </Route>
           </Routes>
         </SettingsProvider>
       </AuthProvider>

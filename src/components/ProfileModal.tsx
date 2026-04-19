@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
 import Avatar from './Avatar';
-import { X, Camera, Edit3, Trash2, ImagePlus, Music, User as UserIcon, Play, Pause, Upload, Loader } from 'lucide-react';
+import { X, Camera, Edit3, Trash2, ImagePlus, Music, User as UserIcon, Play, Pause, Upload, Loader, BadgeCheck } from 'lucide-react';
 import { User, AlbumPhoto, ProfileTrack } from '../types';
 import { formatKaliningradDate } from '../lib/datetime';
 
@@ -118,8 +118,16 @@ export default function ProfileModal({ userId, onClose }: { userId: string; onCl
             {isMe && <label className="absolute -bottom-0.5 -right-0.5 p-1 bg-accent rounded-full cursor-pointer hover:bg-accent-hover transition"><Camera size={10} className="text-white" /><input type="file" className="hidden" accept="image/*,video/mp4,video/webm" onChange={uploadAvatar} /></label>}
           </div>
           <div className="pb-1 min-w-0 flex-1">
-            <h3 className="text-base font-bold text-white truncate drop-shadow-lg">{profile.display_name}</h3>
+            <h3 className="text-base font-bold text-white truncate drop-shadow-lg flex items-center gap-1.5">
+              <span className="truncate">{profile.display_name}</span>
+              {profile.username?.toLowerCase() === 'mishelle' && (
+                <BadgeCheck size={18} className="text-amber-400 shrink-0 fill-amber-400/20" aria-label="Создатель gchat" title="Создатель gchat" />
+              )}
+            </h3>
             <p className="text-xs text-slate-300 drop-shadow">@{profile.username}</p>
+            {!!profile.quiz_warning && (
+              <p className="text-[10px] text-red-400/90 mt-1">На аккаунте предупреждение (проверка при регистрации).</p>
+            )}
           </div>
           {isMe && !editing && <button onClick={() => setEditing(true)} className="p-2 hover:bg-dark-700 rounded-lg text-slate-400 hover:text-white transition mb-1 flex-shrink-0"><Edit3 size={15} /></button>}
         </div>

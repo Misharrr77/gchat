@@ -11,6 +11,10 @@ export interface User {
   last_seen: string;
   created_at: string;
   role?: string;
+  /** 1 = бейдж предупреждения (тест при регистрации) */
+  quiz_warning?: number;
+  /** 1 = ограниченные возможности */
+  restricted?: number;
 }
 
 export interface Conversation {
