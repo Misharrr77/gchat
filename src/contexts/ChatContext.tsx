@@ -4,6 +4,7 @@ import { connectSocket, disconnectSocket, isSocketConnected } from '../lib/socke
 import { useAuth } from './AuthContext';
 import { Conversation, Message, PinnedEntry, StoryGroup, User } from '../types';
 import { playNotificationSound } from '../lib/sounds';
+import { lastMessagePreviewLine } from '../lib/lastMessagePreview';
 
 function mergeUserIntoConversations(prev: Conversation[], u: User): Conversation[] {
   return prev.map(c => ({
@@ -51,6 +52,11 @@ interface Ctx {
   startConversation: (userId: string) => Promise<Conversation>;
   refresh: () => Promise<void>;
   refreshStories: () => Promise<void>;
+  /** Текущая тема группы (если темы включены) */
+  activeTopicId: string | null;
+  selectGroupTopic: (topicId: string | null) => void;
+  loadOlderMessages: () => Promise<void>;
+  loadingOlder: boolean;
 }
 
 const ChatContext = createContext<Ctx | null>(null);
@@ -81,6 +87,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [pins, setPins] = useState<PinnedEntry[]>([]);
   const [pendingScrollMessageId, setPendingScrollMessageId] = useState<string | null>(null);
   const [messagesLoadNonce, setMessagesLoadNonce] = useState(0);
+  const [activeTopicId, setActiveTopicId] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const activeTopicIdRef = useRef<string | null>(null);
+  const loadingOlderRef = useRef(false);
 
   useEffect(() => {
     activeRef.current = active;
@@ -93,8 +103,25 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [messages]);
 
   useEffect(() => {
+    activeTopicIdRef.current = activeTopicId;
+  }, [activeTopicId]);
+
+  useEffect(() => {
     setReplyTo(null);
   }, [active?.id]);
+
+  useEffect(() => {
+    if (!active || active.type !== 'group' || !active.topics_enabled) {
+      setActiveTopicId(null);
+      return;
+    }
+    try {
+      const v = localStorage.getItem(`gchat_topic_${active.id}`);
+      setActiveTopicId(v);
+    } catch {
+      setActiveTopicId(null);
+    }
+  }, [active?.id, active?.topics_enabled]);
 
   const refresh = useCallback(async () => {
     try {
@@ -153,13 +180,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     socket.on('message:new', (msg: Message) => {
       const viewing = activeRef.current?.id === msg.conversation_id;
       const fromOther = msg.sender_id !== userIdRef.current;
+      const lastLine = lastMessagePreviewLine(msg.content, msg.type);
       setConversations(p => {
         const u = p.map(c => {
           if (c.id !== msg.conversation_id) return c;
           const unread = viewing ? 0 : (c.unread_count || 0) + (fromOther ? 1 : 0);
           return {
             ...c,
-            last_message: msg.content,
+            last_message: lastLine,
             last_message_type: msg.type,
             last_message_at: msg.created_at,
             last_message_sender_id: msg.sender_id,
@@ -173,10 +201,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       });
 
       if (activeRef.current?.id === msg.conversation_id) {
-        setMessages(p => {
-          if (p.some(m => m.id === msg.id)) return p;
-          return [...p, msg];
-        });
+        const conv = activeRef.current;
+        if (conv.type === 'group' && conv.topics_enabled && msg.topic_id !== activeTopicIdRef.current) {
+          /* сообщение в другой теме — список обновлён выше */
+        } else {
+          setMessages(p => {
+            if (p.some(m => m.id === msg.id)) return p;
+            return [...p, msg];
+          });
+        }
         api.conversations.markRead(msg.conversation_id).catch(() => {});
       }
 
@@ -308,9 +341,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const interval = setInterval(() => {
       if (!isSocketConnected()) {
         const cid = activeRef.current?.id;
-        if (!cid) return;
+        const conv = activeRef.current;
+        if (!cid || !conv) return;
+        if (conv.type === 'group' && conv.topics_enabled && !activeTopicIdRef.current) return;
+        const topicId =
+          conv.type === 'group' && conv.topics_enabled ? activeTopicIdRef.current || undefined : undefined;
         api.messages
-          .list(cid)
+          .list(cid, topicId ? { topicId } : undefined)
           .then(d => {
             if (activeRef.current?.id !== cid) return;
             const current = messagesRef.current;
@@ -321,7 +358,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }
     }, 4000);
     return () => clearInterval(interval);
-  }, [active?.id, user?.id]);
+  }, [active?.id, activeTopicId, user?.id]);
 
   const refreshPins = useCallback(async () => {
     const cid = activeRef.current?.id;
@@ -348,14 +385,25 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       return;
     }
     const cid = active.id;
+    const conv = active;
+    const needTopic = conv.type === 'group' && !!conv.topics_enabled;
+    if (needTopic && !activeTopicId) {
+      setMessages([]);
+      setLoadingMsgs(false);
+      return;
+    }
+
     const jl = scrollAnchorRef.current;
     const anchor = jl?.convId === cid ? jl.messageId : undefined;
     if (jl?.convId === cid) scrollAnchorRef.current = null;
 
+    const topicOpts =
+      conv.type === 'group' && conv.topics_enabled && activeTopicId ? { topicId: activeTopicId } : {};
+
     setLoadingMsgs(true);
     let cancelled = false;
     api.messages
-      .list(cid, anchor ? { anchor } : undefined)
+      .list(cid, anchor ? { anchor, ...topicOpts } : { ...topicOpts })
       .then(d => {
         if (cancelled || activeRef.current?.id !== cid) return;
         setMessages(d.messages);
@@ -368,7 +416,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [active?.id, messagesLoadNonce]);
+  }, [active?.id, active?.topics_enabled, activeTopicId, messagesLoadNonce]);
 
   const scrollToMessageInChat = useCallback((messageId: string) => {
     const cid = activeRef.current?.id;
@@ -383,9 +431,48 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const clearPendingScroll = useCallback(() => setPendingScrollMessageId(null), []);
 
+  const selectGroupTopic = useCallback((topicId: string | null) => {
+    setActiveTopicId(topicId);
+    const cid = activeRef.current?.id;
+    if (cid) {
+      try {
+        if (topicId) localStorage.setItem(`gchat_topic_${cid}`, topicId);
+        else localStorage.removeItem(`gchat_topic_${cid}`);
+      } catch {}
+    }
+    setMessages([]);
+    setMessagesLoadNonce(n => n + 1);
+  }, []);
+
+  const loadOlderMessages = useCallback(async () => {
+    const conv = activeRef.current;
+    const cid = conv?.id;
+    if (!cid || loadingOlderRef.current) return;
+    const tid = activeTopicIdRef.current;
+    if (conv.type === 'group' && conv.topics_enabled && !tid) return;
+    const first = messagesRef.current[0];
+    if (!first) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    try {
+      const d = await api.messages.list(cid, {
+        before: first.created_at,
+        topicId: conv.type === 'group' && conv.topics_enabled ? tid || undefined : undefined,
+      });
+      const existing = new Set(messagesRef.current.map(m => m.id));
+      const older = (d.messages as Message[]).filter(m => !existing.has(m.id));
+      if (older.length) setMessages(prev => [...older, ...prev]);
+    } catch {}
+    loadingOlderRef.current = false;
+    setLoadingOlder(false);
+  }, []);
+
   const sendMessage = useCallback(async (content: string, type = 'text', mediaUrl?: string, replyToId?: string | null, postAsChannel?: boolean) => {
     if (!activeRef.current) return;
-    const convId = activeRef.current.id;
+    const conv = activeRef.current;
+    const convId = conv.id;
+    const topicId =
+      conv.type === 'group' && conv.topics_enabled ? activeTopicIdRef.current : undefined;
     try {
       const { message } = await api.messages.send({
         conversationId: convId,
@@ -394,6 +481,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         mediaUrl,
         ...(replyToId ? { replyToId } : {}),
         ...(postAsChannel !== undefined ? { postAsChannel } : {}),
+        ...(topicId ? { topicId } : {}),
       });
       setReplyTo(null);
       setMessages(p => {
@@ -451,6 +539,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         startConversation,
         refresh,
         refreshStories,
+        activeTopicId,
+        selectGroupTopic,
+        loadOlderMessages,
+        loadingOlder,
       }}
     >
       {children}

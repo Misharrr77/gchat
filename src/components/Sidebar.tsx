@@ -14,6 +14,20 @@ import { formatKaliningradListTime } from '../lib/datetime';
 
 type Tab = 'direct' | 'group' | 'channel';
 
+function chatListSubtitle(c: Conversation, myId?: string) {
+  if (!c.last_message_at) {
+    if (c.type !== 'direct') return `${c.member_count} уч.`;
+    return 'Нет сообщений';
+  }
+  const display = (c.last_message ?? '').trim() || '…';
+  if (myId && c.last_message_sender_id === myId) return `Вы: ${display}`;
+  if (c.type !== 'direct' && c.last_message_sender_id) {
+    const sender = c.members?.find(x => x.id === c.last_message_sender_id);
+    if (sender) return `${sender.display_name || sender.username}: ${display}`;
+  }
+  return display;
+}
+
 interface Props {
   onSelect: (c?: Conversation) => void;
   onProfile: (u: User) => void;
@@ -25,16 +39,18 @@ interface Props {
 
 function SavedFavoriteRow({ item }: { item: SavedListItem }) {
   const m = item.message;
+  const senderName = m.sender_display_name || m.sender_username || '?';
 
   return (
     <div className="w-full px-4 py-3 text-left border-b border-dark-700/60">
       <div className="flex items-start gap-3">
-        <Avatar src={item.conversation.avatar} name={item.conversation.name || '?'} size={44} />
+        <Avatar src={m.sender_avatar} videoSrc={m.sender_video_avatar} name={senderName} size={44} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-sm font-semibold text-white truncate">{item.conversation.name}</span>
+            <span className="text-sm font-semibold text-white truncate">{senderName}</span>
             <span className="text-[10px] text-slate-500 whitespace-nowrap flex-shrink-0">{formatKaliningradListTime(item.saved_at)}</span>
           </div>
+          <p className="text-[10px] text-slate-500 mt-0.5 truncate">{item.conversation.name}</p>
           <div className="mt-2 space-y-2">
             {m.type === 'image' && m.media_url && (
               <div className="rounded-xl overflow-hidden ring-1 ring-white/[0.08] bg-black/40">
@@ -187,11 +203,7 @@ export default function Sidebar({
                   <span className="text-[10px] text-slate-500 whitespace-nowrap">{formatKaliningradListTime(c.last_message_at)}</span>
                 </div>
               </div>
-              <p className="text-xs text-slate-400 truncate mt-0.5">
-                {c.last_message
-                  ? (c.last_message_type !== 'text' ? `📎 ${c.last_message_type === 'image' ? 'Фото' : c.last_message_type === 'audio' ? 'Аудио' : 'Видео'}` : c.last_message)
-                  : (c.type !== 'direct' ? `${c.member_count} уч.` : 'Нет сообщений')}
-              </p>
+              <p className="text-xs text-slate-400 truncate mt-0.5">{chatListSubtitle(c, user?.id)}</p>
             </div>
           </button>
         ))}

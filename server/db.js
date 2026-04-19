@@ -168,4 +168,19 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_pins_conv ON pinned_messages(conversation_id, pinned_at);
 `);
 
+migrate('messages', 'topic_id', 'TEXT');
+migrate('conversations', 'topics_enabled', 'INTEGER DEFAULT 0');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS group_topics (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    sort_order INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_group_topics_conv ON group_topics(conversation_id, sort_order);
+`);
+
 module.exports = db;

@@ -1,4 +1,4 @@
-import type { PinnedEntry, SavedListItem } from '../types';
+import type { GroupTopic, PinnedEntry, SavedListItem } from '../types';
 
 const BASE = '/api';
 
@@ -57,6 +57,13 @@ export const api = {
       req(`/conversations/${conversationId}/pin`, { method: 'POST', body: JSON.stringify({ messageId }) }),
     unpin: (conversationId: string, messageId: string) =>
       req(`/conversations/${conversationId}/pin/${messageId}`, { method: 'DELETE' }),
+    topics: (id: string): Promise<{ topics: GroupTopic[]; topics_enabled: number }> => req(`/conversations/${id}/topics`),
+    topicCreate: (convId: string, name: string) =>
+      req(`/conversations/${convId}/topics`, { method: 'POST', body: JSON.stringify({ name }) }),
+    topicRename: (convId: string, topicId: string, name: string) =>
+      req(`/conversations/${convId}/topics/${topicId}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+    topicDelete: (convId: string, topicId: string) =>
+      req(`/conversations/${convId}/topics/${topicId}`, { method: 'DELETE' }),
   },
   discover: (q: string) => req(`/discover?q=${encodeURIComponent(q)}`),
   saved: {
@@ -65,10 +72,11 @@ export const api = {
     remove: (messageId: string) => req(`/saved/${messageId}`, { method: 'DELETE' }) as Promise<{ saved: boolean }>,
   },
   messages: {
-    list: (cid: string, opts?: { before?: string; anchor?: string }) => {
+    list: (cid: string, opts?: { before?: string; anchor?: string; topicId?: string }) => {
       const p = new URLSearchParams();
       if (opts?.before) p.set('before', opts.before);
       if (opts?.anchor) p.set('anchor', opts.anchor);
+      if (opts?.topicId) p.set('topicId', opts.topicId);
       const qs = p.toString();
       return req(`/messages/${cid}${qs ? `?${qs}` : ''}`);
     },
@@ -79,6 +87,7 @@ export const api = {
       mediaUrl?: string;
       replyToId?: string | null;
       postAsChannel?: boolean;
+      topicId?: string | null;
     }) => req('/messages', { method: 'POST', body: JSON.stringify(body) }),
     toggleReaction: (messageId: string, emoji: string) =>
       req(`/messages/${messageId}/reactions`, { method: 'POST', body: JSON.stringify({ emoji }) }),

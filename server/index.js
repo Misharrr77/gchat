@@ -10,6 +10,7 @@ const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { uploadsDir } = require('./paths');
 const db = require('./db');
+const { lastMessagePreviewLine } = require('./lastMessageLine');
 
 const app = express();
 const server = http.createServer(app);
@@ -161,6 +162,9 @@ function enrichConversation(conv, userId) {
   }
   conv.members = members;
   conv.member_count = members.length;
+  if (conv.last_message_at != null && conv.last_message_at !== '') {
+    conv.last_message = lastMessagePreviewLine(conv.last_message, conv.last_message_type);
+  }
   return conv;
 }
 
@@ -266,16 +270,78 @@ app.put('/api/conversations/:id', auth, (req, res) => {
   if (!conv) return res.status(404).json({ error: 'Not found' });
   const role = db.prepare('SELECT role FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conv.id, req.user.id);
   if (!role || role.role === 'member') return res.status(403).json({ error: 'Нет прав' });
-  const { name, description, avatar, isPublic } = req.body;
+  const { name, description, avatar, isPublic, topicsEnabled } = req.body;
   const sets = [], vals = [];
   if (name !== undefined) { sets.push('name = ?'); vals.push(name); }
   if (description !== undefined) { sets.push('description = ?'); vals.push(description); }
   if (avatar !== undefined) { sets.push('avatar = ?'); vals.push(avatar); }
   if (isPublic !== undefined) { sets.push('is_public = ?'); vals.push(isPublic ? 1 : 0); }
+  if (topicsEnabled !== undefined && conv.type === 'group') {
+    sets.push('topics_enabled = ?'); vals.push(topicsEnabled ? 1 : 0);
+    if (topicsEnabled) {
+      const n = db.prepare('SELECT COUNT(*) as c FROM group_topics WHERE conversation_id = ?').get(conv.id).c;
+      if (n === 0) {
+        const tid = uuidv4();
+        db.prepare('INSERT INTO group_topics (id, conversation_id, name, sort_order) VALUES (?, ?, ?, 0)').run(tid, conv.id, 'Основной чат');
+        db.prepare('UPDATE messages SET topic_id = ? WHERE conversation_id = ? AND topic_id IS NULL').run(tid, conv.id);
+      }
+    }
+  }
   if (!sets.length) return res.status(400).json({ error: 'Nothing' });
   vals.push(conv.id);
   db.prepare(`UPDATE conversations SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
   res.json({ conversation: enrichConversation(db.prepare('SELECT * FROM conversations WHERE id = ?').get(conv.id), req.user.id) });
+});
+
+app.get('/api/conversations/:id/topics', auth, (req, res) => {
+  const cid = req.params.id;
+  const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(cid, req.user.id);
+  if (!member) return res.status(403).json({ error: 'Нет доступа' });
+  const conv = db.prepare('SELECT topics_enabled FROM conversations WHERE id = ?').get(cid);
+  const topics = db.prepare('SELECT id, conversation_id, name, sort_order, created_at FROM group_topics WHERE conversation_id = ? ORDER BY sort_order ASC, created_at ASC').all(cid);
+  res.json({ topics, topics_enabled: conv?.topics_enabled ?? 0 });
+});
+
+app.post('/api/conversations/:id/topics', auth, (req, res) => {
+  const cid = req.params.id;
+  const conv = db.prepare('SELECT type FROM conversations WHERE id = ?').get(cid);
+  if (!conv || conv.type !== 'group') return res.status(400).json({ error: 'Только группы' });
+  const role = db.prepare('SELECT role FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(cid, req.user.id);
+  if (!role || role.role !== 'admin') return res.status(403).json({ error: 'Только админ' });
+  const name = String(req.body?.name || '').trim().slice(0, 120);
+  if (!name) return res.status(400).json({ error: 'Укажите название темы' });
+  const mo = db.prepare('SELECT COALESCE(MAX(sort_order), -1) as m FROM group_topics WHERE conversation_id = ?').get(cid).m;
+  const id = uuidv4();
+  db.prepare('INSERT INTO group_topics (id, conversation_id, name, sort_order) VALUES (?, ?, ?, ?)').run(id, cid, name, mo + 1);
+  res.json({ topic: db.prepare('SELECT id, conversation_id, name, sort_order, created_at FROM group_topics WHERE id = ?').get(id) });
+});
+
+app.patch('/api/conversations/:id/topics/:topicId', auth, (req, res) => {
+  const cid = req.params.id;
+  const tid = req.params.topicId;
+  const role = db.prepare('SELECT role FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(cid, req.user.id);
+  if (!role || role.role !== 'admin') return res.status(403).json({ error: 'Только админ' });
+  const name = String(req.body?.name || '').trim().slice(0, 120);
+  if (!name) return res.status(400).json({ error: 'Имя' });
+  const r = db.prepare('UPDATE group_topics SET name = ? WHERE id = ? AND conversation_id = ?').run(name, tid, cid);
+  if (!r.changes) return res.status(404).json({ error: 'Не найдено' });
+  res.json({ topic: db.prepare('SELECT id, conversation_id, name, sort_order, created_at FROM group_topics WHERE id = ?').get(tid) });
+});
+
+app.delete('/api/conversations/:id/topics/:topicId', auth, (req, res) => {
+  const cid = req.params.id;
+  const tid = req.params.topicId;
+  const conv = db.prepare('SELECT type FROM conversations WHERE id = ?').get(cid);
+  if (!conv || conv.type !== 'group') return res.status(400).json({ error: 'Только группы' });
+  const role = db.prepare('SELECT role FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(cid, req.user.id);
+  if (!role || role.role !== 'admin') return res.status(403).json({ error: 'Только админ' });
+  const cnt = db.prepare('SELECT COUNT(*) as c FROM group_topics WHERE conversation_id = ?').get(cid).c;
+  if (cnt <= 1) return res.status(400).json({ error: 'Нельзя удалить последнюю тему' });
+  const fallback = db.prepare('SELECT id FROM group_topics WHERE conversation_id = ? AND id != ? ORDER BY sort_order ASC, created_at ASC LIMIT 1').get(cid, tid);
+  if (!fallback) return res.status(400).json({ error: 'Нельзя' });
+  db.prepare('UPDATE messages SET topic_id = ? WHERE conversation_id = ? AND topic_id = ?').run(fallback.id, cid, tid);
+  db.prepare('DELETE FROM group_topics WHERE id = ? AND conversation_id = ?').run(tid, cid);
+  res.json({ ok: true });
 });
 
 app.put('/api/conversations/:id/members/:userId/role', auth, (req, res) => {
@@ -350,7 +416,7 @@ function fetchReactionsForMessages(messageIds) {
   return map;
 }
 
-const MSG_BASE = `m.id, m.conversation_id, m.sender_id, m.content, m.type, m.media_url, m.reply_to_id, m.post_as_channel, m.created_at,
+const MSG_BASE = `m.id, m.conversation_id, m.sender_id, m.content, m.type, m.media_url, m.reply_to_id, m.post_as_channel, m.topic_id, m.created_at,
   u.username as sender_username, u.display_name as sender_display_name, u.avatar as sender_avatar, u.video_avatar as sender_video_avatar,
   c.type as _conv_type, c.name as _conv_name, c.avatar as _conv_avatar,
   rm.id as _reply_id, rm.content as _reply_content, rm.type as _reply_type, rm.media_url as _reply_media_url,
@@ -380,6 +446,7 @@ function shapeDbMessage(row, reactionsMap) {
     media_url: row.media_url,
     reply_to_id: row.reply_to_id || null,
     post_as_channel: isChannelConv ? (pac === 0 ? 0 : pac === 1 ? 1 : null) : null,
+    topic_id: row.topic_id || null,
     created_at: row.created_at,
     sender_username: row.sender_username,
     sender_display_name: row.sender_display_name,
@@ -463,6 +530,21 @@ function broadcastPinsUpdated(conversationId) {
   });
 }
 
+/** Фильтр по теме для групп с включёнными темами */
+function resolveTopicFilter(conversationId, topicIdQuery, anchorMsgId) {
+  const meta = db.prepare('SELECT type, topics_enabled FROM conversations WHERE id = ?').get(conversationId);
+  if (!meta || meta.type !== 'group' || !meta.topics_enabled) return { clause: '', params: [] };
+  let tid = topicIdQuery || null;
+  if (anchorMsgId) {
+    const row = db.prepare('SELECT topic_id FROM messages WHERE id = ? AND conversation_id = ?').get(anchorMsgId, conversationId);
+    if (row?.topic_id) tid = row.topic_id;
+  }
+  if (!tid) return { err: 'Укажите тему (topicId) или откройте из закрепа внутри темы' };
+  const ok = db.prepare('SELECT 1 FROM group_topics WHERE id = ? AND conversation_id = ?').get(tid, conversationId);
+  if (!ok) return { err: 'Тема не найдена' };
+  return { clause: ' AND m.topic_id = ?', params: [tid] };
+}
+
 app.get('/api/messages/:conversationId', auth, (req, res) => {
   try {
     const { conversationId } = req.params;
@@ -470,6 +552,10 @@ app.get('/api/messages/:conversationId', auth, (req, res) => {
     const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conversationId, req.user.id);
     if (!member) return res.status(403).json({ error: 'Not a member' });
     const uid = req.user.id;
+    const tf = resolveTopicFilter(conversationId, req.query.topicId, anchor || null);
+    if (tf.err) return res.status(400).json({ error: tf.err });
+    const TX = tf.clause || '';
+    const TP = tf.params || [];
     let rows;
     if (anchor) {
       const a = db.prepare('SELECT created_at FROM messages WHERE id = ? AND conversation_id = ?').get(anchor, conversationId);
@@ -477,23 +563,23 @@ app.get('/api/messages/:conversationId', auth, (req, res) => {
       const lim = Math.min(Math.max(+limit || 60, 30), 150);
       const half = Math.ceil(lim / 2);
       const older = db
-        .prepare(`SELECT ${MSG_BASE}${MSG_SELECT_SAVED} ${MSG_FROM} WHERE m.conversation_id = ? AND m.created_at <= ? ORDER BY m.created_at DESC LIMIT ?`)
-        .all(uid, conversationId, a.created_at, half + 20);
+        .prepare(`SELECT ${MSG_BASE}${MSG_SELECT_SAVED} ${MSG_FROM} WHERE m.conversation_id = ? AND m.created_at <= ?${TX} ORDER BY m.created_at DESC LIMIT ?`)
+        .all(uid, conversationId, a.created_at, ...TP, half + 20);
       const newer = db
-        .prepare(`SELECT ${MSG_BASE}${MSG_SELECT_SAVED} ${MSG_FROM} WHERE m.conversation_id = ? AND m.created_at > ? ORDER BY m.created_at ASC LIMIT ?`)
-        .all(uid, conversationId, a.created_at, half + 20);
+        .prepare(`SELECT ${MSG_BASE}${MSG_SELECT_SAVED} ${MSG_FROM} WHERE m.conversation_id = ? AND m.created_at > ?${TX} ORDER BY m.created_at ASC LIMIT ?`)
+        .all(uid, conversationId, a.created_at, ...TP, half + 20);
       const seen = new Map();
       [...newer, ...older].forEach(r => seen.set(r.id, r));
       rows = [...seen.values()].sort((x, y) => new Date(x.created_at) - new Date(y.created_at));
     } else if (before) {
       rows = db
-        .prepare(`SELECT ${MSG_BASE}${MSG_SELECT_SAVED} ${MSG_FROM} WHERE m.conversation_id = ? AND m.created_at < ? ORDER BY m.created_at DESC LIMIT ?`)
-        .all(uid, conversationId, before, +limit)
+        .prepare(`SELECT ${MSG_BASE}${MSG_SELECT_SAVED} ${MSG_FROM} WHERE m.conversation_id = ? AND m.created_at < ?${TX} ORDER BY m.created_at DESC LIMIT ?`)
+        .all(uid, conversationId, before, ...TP, +limit)
         .reverse();
     } else {
       rows = db
-        .prepare(`SELECT ${MSG_BASE}${MSG_SELECT_SAVED} ${MSG_FROM} WHERE m.conversation_id = ? ORDER BY m.created_at DESC LIMIT ?`)
-        .all(uid, conversationId, +limit)
+        .prepare(`SELECT ${MSG_BASE}${MSG_SELECT_SAVED} ${MSG_FROM} WHERE m.conversation_id = ?${TX} ORDER BY m.created_at DESC LIMIT ?`)
+        .all(uid, conversationId, ...TP, +limit)
         .reverse();
     }
     const ids = rows.map(r => r.id);
@@ -529,11 +615,11 @@ app.post('/api/messages/:messageId/reactions', auth, (req, res) => {
 
 app.post('/api/messages', auth, (req, res) => {
   try {
-    const { conversationId, content, type = 'text', mediaUrl, replyToId, postAsChannel } = req.body;
+    const { conversationId, content, type = 'text', mediaUrl, replyToId, postAsChannel, topicId: bodyTopicId } = req.body;
     if (!conversationId) return res.status(400).json({ error: 'conversationId required' });
     const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conversationId, req.user.id);
     if (!member) return res.status(403).json({ error: 'Not a member' });
-    const conv = db.prepare('SELECT type FROM conversations WHERE id = ?').get(conversationId);
+    const conv = db.prepare('SELECT type, topics_enabled FROM conversations WHERE id = ?').get(conversationId);
     if (conv?.type === 'channel') {
       const role = db.prepare('SELECT role FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(conversationId, req.user.id);
       if (role?.role !== 'admin') return res.status(403).json({ error: 'Только админы' });
@@ -542,14 +628,26 @@ app.post('/api/messages', auth, (req, res) => {
       const ref = db.prepare('SELECT conversation_id FROM messages WHERE id = ?').get(replyToId);
       if (!ref || ref.conversation_id !== conversationId) return res.status(400).json({ error: 'Некорректный ответ' });
     }
+    let topicId = bodyTopicId || null;
+    if (conv?.type === 'group' && conv.topics_enabled) {
+      if (!topicId) {
+        const first = db.prepare('SELECT id FROM group_topics WHERE conversation_id = ? ORDER BY sort_order ASC, created_at ASC LIMIT 1').get(conversationId);
+        topicId = first?.id || null;
+      }
+      if (!topicId) return res.status(400).json({ error: 'Сначала включите темы и создайте хотя бы одну' });
+      const okTop = db.prepare('SELECT 1 FROM group_topics WHERE id = ? AND conversation_id = ?').get(topicId, conversationId);
+      if (!okTop) return res.status(400).json({ error: 'Неверная тема' });
+    } else {
+      topicId = null;
+    }
     const id = uuidv4();
     let channelPostFlag = null;
     if (conv?.type === 'channel') {
       channelPostFlag = postAsChannel === false || postAsChannel === 0 ? 0 : 1;
     }
     db.prepare(
-      'INSERT INTO messages (id, conversation_id, sender_id, content, type, media_url, reply_to_id, post_as_channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(id, conversationId, req.user.id, content, type, mediaUrl || null, replyToId || null, channelPostFlag);
+      'INSERT INTO messages (id, conversation_id, sender_id, content, type, media_url, reply_to_id, post_as_channel, topic_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(id, conversationId, req.user.id, content, type, mediaUrl || null, replyToId || null, channelPostFlag, topicId);
     db.prepare(`UPDATE conversations SET updated_at = datetime('now') WHERE id = ?`).run(conversationId);
     const message = hydrateMessageById(id, req.user.id);
     const broadcastPayload = { ...message };

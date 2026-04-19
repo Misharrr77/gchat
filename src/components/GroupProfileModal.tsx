@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useChat } from '../contexts/ChatContext';
 import { api } from '../lib/api';
 import Avatar from './Avatar';
-import { X, Edit3, Camera, Users, Radio, Shield, UserMinus, UserPlus, LogOut, Loader, Search, Crown } from 'lucide-react';
-import { Conversation, User } from '../types';
+import { X, Edit3, Camera, Users, Radio, Shield, UserMinus, UserPlus, LogOut, Search, Crown, Hash, Trash2 } from 'lucide-react';
+import { Conversation, GroupTopic, User } from '../types';
 
 export default function GroupProfileModal({
   conversation: conv,
@@ -28,6 +28,24 @@ export default function GroupProfileModal({
   const [addingMembers, setAddingMembers] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<User[]>([]);
+  const [topics, setTopics] = useState<GroupTopic[]>([]);
+  const [topicsEnabled, setTopicsEnabled] = useState(!!conv.topics_enabled);
+  const [newTopicName, setNewTopicName] = useState('');
+
+  useEffect(() => {
+    setTopicsEnabled(!!conv.topics_enabled);
+  }, [conv.topics_enabled]);
+
+  useEffect(() => {
+    if (conv.type !== 'group') return;
+    api.conversations
+      .topics(conv.id)
+      .then(d => {
+        setTopics(d.topics || []);
+        setTopicsEnabled(!!d.topics_enabled);
+      })
+      .catch(() => {});
+  }, [conv.id, conv.type]);
 
   const save = async () => {
     setSaving(true);
@@ -60,6 +78,38 @@ export default function GroupProfileModal({
 
   const addMember = async (userId: string) => {
     try { await api.conversations.addMembers(conv.id, [userId]); await refresh(); setSearchResults(r => r.filter(u => u.id !== userId)); } catch {}
+  };
+
+  const toggleTopicsEnabled = async () => {
+    if (!isAdmin || conv.type !== 'group') return;
+    try {
+      await api.conversations.update(conv.id, { topicsEnabled: !topicsEnabled });
+      await refresh();
+      setTopicsEnabled(!topicsEnabled);
+      const d = await api.conversations.topics(conv.id);
+      setTopics(d.topics || []);
+    } catch {}
+  };
+
+  const addTopic = async () => {
+    const n = newTopicName.trim();
+    if (!n || !isAdmin || conv.type !== 'group') return;
+    try {
+      await api.conversations.topicCreate(conv.id, n);
+      const d = await api.conversations.topics(conv.id);
+      setTopics(d.topics || []);
+      setNewTopicName('');
+    } catch {}
+  };
+
+  const deleteTopic = async (topicId: string) => {
+    if (!isAdmin || conv.type !== 'group') return;
+    try {
+      await api.conversations.topicDelete(conv.id, topicId);
+      const d = await api.conversations.topics(conv.id);
+      setTopics(d.topics || []);
+      await refresh();
+    } catch {}
   };
 
   const isChannel = conv.type === 'channel';
@@ -104,51 +154,105 @@ export default function GroupProfileModal({
           ) : (
             <div className="p-5">
               {conv.description && <p className="text-sm text-slate-300 mb-4">{conv.description}</p>}
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="text-sm font-medium text-slate-300">Участники ({conv.member_count})</h4>
-                {isAdmin && <button onClick={() => setAddingMembers(!addingMembers)} className="p-1.5 hover:bg-dark-700 rounded-lg text-accent"><UserPlus size={16} /></button>}
-              </div>
-              {addingMembers && (
-                <div className="mb-4">
-                  <div className="relative mb-2">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-                    <input value={searchQuery} onChange={e => searchUsers(e.target.value)} placeholder="Найти..." className="w-full pl-8 pr-3 py-2 bg-dark-700 border border-dark-600 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent" autoFocus />
-                  </div>
-                  {searchResults.map(u => (
-                    <div key={u.id} className="flex items-center gap-2 py-1.5">
-                      <Avatar src={u.avatar} name={u.display_name || u.username} size={32} />
-                      <span className="text-sm text-white flex-1 truncate">{u.display_name || u.username}</span>
-                      <button onClick={() => addMember(u.id)} className="px-2 py-1 bg-accent/20 text-accent text-xs rounded-lg hover:bg-accent/30">Добавить</button>
+
+              {conv.type === 'group' && isAdmin && (
+                <div className="mb-6 p-3 rounded-xl bg-dark-700/50 border border-dark-600/80">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="accent-accent mt-1 w-4 h-4 flex-shrink-0"
+                      checked={topicsEnabled}
+                      onChange={toggleTopicsEnabled}
+                    />
+                    <div>
+                      <p className="text-sm font-medium text-white">Темы в группе</p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        При включении весь текущий чат попадает в тему «Основной чат». Участники сначала выбирают тему.
+                      </p>
                     </div>
-                  ))}
+                  </label>
+                  {topicsEnabled && (
+                    <div className="mt-4 space-y-2 border-t border-dark-600 pt-3">
+                      <p className="text-xs text-slate-400 uppercase tracking-wide">Темы</p>
+                      {topics.map(t => (
+                        <div key={t.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-dark-800/80">
+                          <Hash size={14} className="text-accent flex-shrink-0" />
+                          <span className="text-sm text-white flex-1 truncate">{t.name}</span>
+                          {topics.length > 1 && (
+                            <button type="button" onClick={() => deleteTopic(t.id)} className="p-1.5 text-slate-500 hover:text-red-400" aria-label="Удалить тему">
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      <div className="flex gap-2 mt-2">
+                        <input
+                          value={newTopicName}
+                          onChange={e => setNewTopicName(e.target.value)}
+                          placeholder="Новая тема…"
+                          className="flex-1 px-3 py-2 bg-dark-700 border border-dark-600 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
+                          onKeyDown={e => e.key === 'Enter' && addTopic()}
+                        />
+                        <button type="button" onClick={addTopic} className="px-3 py-2 bg-accent text-white text-sm rounded-xl hover:bg-accent-hover">
+                          Добавить
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
-              <div className="space-y-0.5">
-                {conv.members?.map(m => (
-                  <div
-                    key={m.id}
-                    role={onOpenMemberProfile ? 'button' : undefined}
-                    onClick={onOpenMemberProfile ? () => onOpenMemberProfile(m) : undefined}
-                    className={`flex items-center gap-3 py-2 px-2 rounded-xl hover:bg-dark-700/50 ${onOpenMemberProfile ? 'cursor-pointer' : ''}`}
-                  >
-                    <Avatar src={m.avatar} videoSrc={m.video_avatar} name={m.display_name || m.username} size={36} online={m.is_online === 1} />
-                    <div className="flex-1 min-w-0 text-left">
-                      <p className="text-sm text-white truncate">{m.display_name || m.username}</p>
-                      <p className="text-xs text-slate-400">@{m.username}</p>
-                    </div>
-                    <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                      {conv.creator_id === m.id && <Crown size={13} className="text-yellow-400" />}
-                      {m.role === 'admin' && conv.creator_id !== m.id && <Shield size={13} className="text-accent" />}
-                      {isAdmin && m.id !== me?.id && (
-                        <>
-                          <button type="button" onClick={() => setRole(m.id, m.role !== 'admin' ? 'admin' : 'member')} className="p-1 hover:bg-dark-600 rounded text-slate-500 hover:text-accent transition"><Shield size={13} /></button>
-                          <button type="button" onClick={() => removeMember(m.id)} className="p-1 hover:bg-dark-600 rounded text-slate-500 hover:text-red-400 transition"><UserMinus size={13} /></button>
-                        </>
-                      )}
-                    </div>
+
+              {!isChannel ? (
+                <>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-medium text-slate-300">Участники ({conv.member_count})</h4>
+                    {isAdmin && <button onClick={() => setAddingMembers(!addingMembers)} className="p-1.5 hover:bg-dark-700 rounded-lg text-accent"><UserPlus size={16} /></button>}
                   </div>
-                ))}
-              </div>
+                  {addingMembers && (
+                    <div className="mb-4">
+                      <div className="relative mb-2">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                        <input value={searchQuery} onChange={e => searchUsers(e.target.value)} placeholder="Найти..." className="w-full pl-8 pr-3 py-2 bg-dark-700 border border-dark-600 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent" autoFocus />
+                      </div>
+                      {searchResults.map(u => (
+                        <div key={u.id} className="flex items-center gap-2 py-1.5">
+                          <Avatar src={u.avatar} name={u.display_name || u.username} size={32} />
+                          <span className="text-sm text-white flex-1 truncate">{u.display_name || u.username}</span>
+                          <button onClick={() => addMember(u.id)} className="px-2 py-1 bg-accent/20 text-accent text-xs rounded-lg hover:bg-accent/30">Добавить</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="space-y-0.5">
+                    {conv.members?.map(m => (
+                      <div
+                        key={m.id}
+                        role={onOpenMemberProfile ? 'button' : undefined}
+                        onClick={onOpenMemberProfile ? () => onOpenMemberProfile(m) : undefined}
+                        className={`flex items-center gap-3 py-2 px-2 rounded-xl hover:bg-dark-700/50 ${onOpenMemberProfile ? 'cursor-pointer' : ''}`}
+                      >
+                        <Avatar src={m.avatar} videoSrc={m.video_avatar} name={m.display_name || m.username} size={36} online={m.is_online === 1} />
+                        <div className="flex-1 min-w-0 text-left">
+                          <p className="text-sm text-white truncate">{m.display_name || m.username}</p>
+                          <p className="text-xs text-slate-400">@{m.username}</p>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                          {conv.creator_id === m.id && <Crown size={13} className="text-yellow-400" />}
+                          {m.role === 'admin' && conv.creator_id !== m.id && <Shield size={13} className="text-accent" />}
+                          {isAdmin && m.id !== me?.id && (
+                            <>
+                              <button type="button" onClick={() => setRole(m.id, m.role !== 'admin' ? 'admin' : 'member')} className="p-1 hover:bg-dark-600 rounded text-slate-500 hover:text-accent transition"><Shield size={13} /></button>
+                              <button type="button" onClick={() => removeMember(m.id)} className="p-1 hover:bg-dark-600 rounded text-slate-500 hover:text-red-400 transition"><UserMinus size={13} /></button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-slate-500 mb-4">Список подписчиков в профиле канала не отображается.</p>
+              )}
               <button onClick={leaveGroup} className="mt-5 w-full py-2.5 border border-red-500/30 text-red-400 text-sm rounded-xl hover:bg-red-500/10 transition flex items-center justify-center gap-2">
                 <LogOut size={15} />Покинуть
               </button>

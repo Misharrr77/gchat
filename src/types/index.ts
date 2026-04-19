@@ -29,8 +29,18 @@ export interface Conversation {
   last_message_at: string | null;
   last_message_sender_id: string | null;
   unread_count?: number;
+  /** 1 = темы включены (только группа) */
+  topics_enabled?: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface GroupTopic {
+  id: string;
+  conversation_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
 }
 
 export interface MessageReaction {
@@ -70,6 +80,8 @@ export interface Message {
   post_as_channel?: number | null;
   /** Сообщение в избранном (текущий пользователь) */
   is_saved?: boolean;
+  /** Тема группы (если темы включены) */
+  topic_id?: string | null;
 }
 
 export interface SavedListItem {

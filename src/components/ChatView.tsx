@@ -4,6 +4,7 @@ import { useChat } from '../contexts/ChatContext';
 import MessageBubble from './MessageBubble';
 import MessageInput from './MessageInput';
 import GroupProfileModal from './GroupProfileModal';
+import GroupTopicsGate from './GroupTopicsGate';
 import Avatar from './Avatar';
 import { api } from '../lib/api';
 import { QUICK_REACTIONS } from '../lib/reactions';
@@ -32,6 +33,10 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
     pendingScrollMessageId,
     clearPendingScroll,
     scrollToMessageInChat,
+    activeTopicId,
+    selectGroupTopic,
+    loadOlderMessages,
+    loadingOlder,
   } = useChat();
   const endRef = useRef<HTMLDivElement>(null);
   const suppressAutoScrollUntil = useRef(0);
@@ -155,7 +160,13 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
           <ArrowLeft size={20} />
         </button>
         <div className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer" onClick={onHeaderClick}>
-          <Avatar src={active.avatar} name={active.name || ''} size={40} online={isDirect ? isOnline : undefined} />
+          <Avatar
+            src={active.avatar}
+            videoSrc={isDirect && other ? other.video_avatar : undefined}
+            name={active.name || ''}
+            size={40}
+            online={isDirect ? isOnline : undefined}
+          />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               {isChannel && <Radio size={13} className="text-accent flex-shrink-0" />}
@@ -165,6 +176,18 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
             <p className="text-xs leading-tight">{subtitle()}</p>
           </div>
         </div>
+        {isGroup && active.topics_enabled && activeTopicId && (
+          <button
+            type="button"
+            onClick={e => {
+              e.stopPropagation();
+              selectGroupTopic(null);
+            }}
+            className="text-xs font-medium text-accent hover:underline px-2 py-1 flex-shrink-0"
+          >
+            Темы
+          </button>
+        )}
         {(isGroup || isChannel) && (
           <button onClick={() => setShowGroupProfile(true)} className="p-2 hover:bg-dark-700 rounded-xl text-slate-400 flex-shrink-0">
             <Info size={18} />
@@ -193,35 +216,49 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
         </div>
       )}
 
-      <div
-        className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5 min-h-0"
-        onClick={() => setSelectedId(null)}
-        role="presentation"
-      >
-        {loadingMsgs ? (
-          <div className="flex justify-center py-8"><div className="w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin" /></div>
-        ) : messages.length === 0 ? (
-          <div className="flex items-center justify-center h-full"><p className="text-slate-500 text-sm">{isChannel ? 'Нет публикаций' : 'Нет сообщений'}</p></div>
-        ) : (
-          messages.map((msg, i) => (
-            <MessageBubble
-              key={msg.id}
-              message={msg}
-              showAvatar={
-                !i ||
-                messages[i - 1].sender_id !== msg.sender_id ||
-                !!(messages[i - 1].as_channel ?? false) !== !!(msg.as_channel ?? false)
-              }
-              onImageClick={setImgPreview}
-              showSenderNames={isGroup || isChannel}
-              isSelected={selectedId === msg.id}
-              onSelect={() => pickMessage(msg)}
-              onToggleReaction={emoji => toggleReaction(msg.id, emoji)}
-            />
-          ))
-        )}
-        <div ref={endRef} />
-      </div>
+      <div className="relative flex-1 flex flex-col min-h-0">
+        <GroupTopicsGate />
+        <div
+          className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5 min-h-0"
+          onClick={() => setSelectedId(null)}
+          onScroll={e => {
+            if (e.currentTarget.scrollTop < 100) loadOlderMessages();
+          }}
+          role="presentation"
+        >
+          {loadingOlder && (
+            <div className="flex justify-center py-2 mb-1">
+              <div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin opacity-70" />
+            </div>
+          )}
+          {loadingMsgs ? (
+            <div className="flex justify-center py-8">
+              <div className="w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="flex items-center justify-center h-full min-h-[120px]">
+              <p className="text-slate-500 text-sm">{isChannel ? 'Нет публикаций' : 'Нет сообщений'}</p>
+            </div>
+          ) : (
+            messages.map((msg, i) => (
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                showAvatar={
+                  !i ||
+                  messages[i - 1].sender_id !== msg.sender_id ||
+                  !!(messages[i - 1].as_channel ?? false) !== !!(msg.as_channel ?? false)
+                }
+                onImageClick={setImgPreview}
+                showSenderNames={isGroup || isChannel}
+                isSelected={selectedId === msg.id}
+                onSelect={() => pickMessage(msg)}
+                onToggleReaction={emoji => toggleReaction(msg.id, emoji)}
+              />
+            ))
+          )}
+          <div ref={endRef} />
+        </div>
 
       {selectedMsg && (
         <div
@@ -288,9 +325,12 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
         </div>
       )}
 
-      {canWrite ? <MessageInput /> : (
-        <div className="border-t border-dark-600 bg-dark-800 px-4 py-3 text-center text-sm text-slate-500">Только админы могут писать</div>
-      )}
+        {canWrite ? <MessageInput /> : (
+          <div className="border-t border-dark-600 bg-dark-800 px-4 py-3 text-center text-sm text-slate-500 flex-shrink-0">
+            Только админы могут писать
+          </div>
+        )}
+      </div>
 
       {imgPreview && (
         <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4 cursor-pointer" onClick={() => setImgPreview(null)}>
