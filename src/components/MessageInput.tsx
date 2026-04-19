@@ -3,6 +3,8 @@ import { useChat } from '../contexts/ChatContext';
 import { api } from '../lib/api';
 import { getSocket } from '../lib/socket';
 import { Send, Paperclip, Image, Music, Video, X, Radio, User } from 'lucide-react';
+import ChatVideo from './media/ChatVideo';
+import ChatAudio from './media/ChatAudio';
 
 const HEARTBEAT_MS = 2200;
 
@@ -147,14 +149,26 @@ export default function MessageInput() {
         </div>
       )}
       {preview && (
-        <div className="px-4 pt-3 flex items-center gap-3">
-          <div className="relative">
-            {preview.type === 'image' && <img src={preview.url} className="w-16 h-16 object-cover rounded-lg" />}
-            {preview.type === 'audio' && <div className="w-16 h-16 bg-dark-700 rounded-lg flex items-center justify-center"><Music size={20} className="text-accent" /></div>}
-            {preview.type === 'video' && <video src={preview.url} className="w-16 h-16 object-cover rounded-lg" />}
-            <button type="button" onClick={() => { URL.revokeObjectURL(preview.url); setPreview(null); }} className="absolute -top-1.5 -right-1.5 p-0.5 bg-dark-600 rounded-full text-white hover:text-red-400"><X size={12} /></button>
+        <div className="px-4 pt-3 pb-1 relative">
+          <button
+            type="button"
+            onClick={() => {
+              URL.revokeObjectURL(preview.url);
+              setPreview(null);
+            }}
+            className="absolute top-3 right-3 z-10 p-1 bg-dark-600 rounded-full text-white hover:text-red-400"
+            aria-label="Убрать вложение"
+          >
+            <X size={14} />
+          </button>
+          <div className="flex flex-col gap-2 pr-8 min-w-0">
+            {preview.type === 'image' && (
+              <img src={preview.url} className="w-24 h-24 object-cover rounded-xl ring-1 ring-white/10" alt="" />
+            )}
+            {preview.type === 'video' && <ChatVideo src={preview.url} className="max-w-xs" videoClassName="max-h-40 object-contain" />}
+            {preview.type === 'audio' && <ChatAudio src={preview.url} compact className="max-w-md" />}
+            <p className="text-xs text-slate-400 truncate">{preview.file.name}</p>
           </div>
-          <p className="text-xs text-slate-400 truncate">{preview.file.name}</p>
         </div>
       )}
       <form onSubmit={submit} className="flex items-center gap-2 px-3 py-2.5">

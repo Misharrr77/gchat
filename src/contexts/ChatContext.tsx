@@ -45,7 +45,6 @@ interface Ctx {
   patchMessage: (messageId: string, patch: Partial<Message>) => void;
   pins: PinnedEntry[];
   refreshPins: () => Promise<void>;
-  jumpToMessage: (conv: Conversation, messageId: string) => void;
   scrollToMessageInChat: (messageId: string) => void;
   pendingScrollMessageId: string | null;
   clearPendingScroll: () => void;
@@ -77,7 +76,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const userIdRef = useRef<string | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const typingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  const jumpLoadRef = useRef<{ convId: string; messageId: string } | null>(null);
+  /** Load message window around this id (pins / scroll-to) */
+  const scrollAnchorRef = useRef<{ convId: string; messageId: string } | null>(null);
   const [pins, setPins] = useState<PinnedEntry[]>([]);
   const [pendingScrollMessageId, setPendingScrollMessageId] = useState<string | null>(null);
   const [messagesLoadNonce, setMessagesLoadNonce] = useState(0);
@@ -348,9 +348,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       return;
     }
     const cid = active.id;
-    const jl = jumpLoadRef.current;
+    const jl = scrollAnchorRef.current;
     const anchor = jl?.convId === cid ? jl.messageId : undefined;
-    if (jl?.convId === cid) jumpLoadRef.current = null;
+    if (jl?.convId === cid) scrollAnchorRef.current = null;
 
     setLoadingMsgs(true);
     let cancelled = false;
@@ -370,13 +370,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [active?.id, messagesLoadNonce]);
 
-  const jumpToMessage = useCallback((conv: Conversation, messageId: string) => {
-    jumpLoadRef.current = { convId: conv.id, messageId };
-    const sameChat = activeRef.current?.id === conv.id;
-    setActive(conv);
-    if (sameChat) setMessagesLoadNonce(n => n + 1);
-  }, []);
-
   const scrollToMessageInChat = useCallback((messageId: string) => {
     const cid = activeRef.current?.id;
     if (!cid) return;
@@ -384,7 +377,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setPendingScrollMessageId(messageId);
       return;
     }
-    jumpLoadRef.current = { convId: cid, messageId };
+    scrollAnchorRef.current = { convId: cid, messageId };
     setMessagesLoadNonce(n => n + 1);
   }, []);
 
@@ -452,7 +445,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         patchMessage,
         pins,
         refreshPins,
-        jumpToMessage,
         scrollToMessageInChat,
         pendingScrollMessageId,
         clearPendingScroll,

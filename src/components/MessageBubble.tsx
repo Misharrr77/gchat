@@ -4,6 +4,8 @@ import Avatar from './Avatar';
 import { Message } from '../types';
 import { format, parseISO } from 'date-fns';
 import { Radio, User } from 'lucide-react';
+import ChatVideo from './media/ChatVideo';
+import ChatAudio from './media/ChatAudio';
 
 interface Props {
   message: Message;
@@ -133,15 +135,14 @@ export default function MessageBubble({
             />
           )}
           {message.type === 'audio' && message.media_url && (
-            <audio src={message.media_url} controls className="max-w-full mb-1 pointer-events-auto" onClick={e => e.stopPropagation()} />
+            <div className="mb-1.5 max-w-full pointer-events-auto">
+              <ChatAudio src={message.media_url} />
+            </div>
           )}
           {message.type === 'video' && message.media_url && (
-            <video
-              src={message.media_url}
-              controls
-              className="rounded-lg max-w-full max-h-64 mb-1 pointer-events-auto"
-              onClick={e => e.stopPropagation()}
-            />
+            <div className="mb-1.5 max-w-full pointer-events-auto">
+              <ChatVideo src={message.media_url} videoClassName="max-h-64 sm:max-h-72 w-full object-contain" />
+            </div>
           )}
           {message.content && <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>}
           <div className={`flex items-center justify-between gap-2 mt-1.5 pointer-events-none ${isMine ? 'text-white/50' : 'text-slate-500'}`}>

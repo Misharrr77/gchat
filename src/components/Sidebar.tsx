@@ -7,6 +7,8 @@ import StoriesBar from './StoriesBar';
 import SearchModal from './SearchModal';
 import CreateGroupModal from './CreateGroupModal';
 import { Menu, MessageSquare, Users, Radio, Plus, Search, Compass, ChevronLeft, Bookmark } from 'lucide-react';
+import ChatVideo from './media/ChatVideo';
+import ChatAudio from './media/ChatAudio';
 import { Conversation, User, SavedListItem } from '../types';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
 
@@ -31,35 +33,11 @@ interface Props {
   onListModeChange?: (mode: 'chats' | 'favorites') => void;
 }
 
-function SavedFavoriteRow({
-  item,
-  fmtTime,
-  onJumpToChat,
-}: {
-  item: SavedListItem;
-  fmtTime: (d?: string | null) => string;
-  onJumpToChat: () => void;
-}) {
+function SavedFavoriteRow({ item, fmtTime }: { item: SavedListItem; fmtTime: (d?: string | null) => string }) {
   const m = item.message;
-  const rowNavigate = (e: React.MouseEvent) => {
-    const t = e.target as HTMLElement;
-    if (t.closest('audio, video, .saved-no-nav')) return;
-    onJumpToChat();
-  };
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={rowNavigate}
-      onKeyDown={e => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onJumpToChat();
-        }
-      }}
-      className="w-full px-4 py-3 text-left border-b border-dark-700/60 hover:bg-dark-700/40 transition cursor-pointer"
-    >
+    <div className="w-full px-4 py-3 text-left border-b border-dark-700/60">
       <div className="flex items-start gap-3">
         <Avatar src={item.conversation.avatar} name={item.conversation.name || '?'} size={44} />
         <div className="flex-1 min-w-0">
@@ -67,19 +45,14 @@ function SavedFavoriteRow({
             <span className="text-sm font-semibold text-white truncate">{item.conversation.name}</span>
             <span className="text-[10px] text-slate-500 whitespace-nowrap flex-shrink-0">{fmtTime(item.saved_at)}</span>
           </div>
-          <p className="text-[10px] text-accent/90 mt-0.5">Нажмите, чтобы перейти к сообщению в чате</p>
-          <div className="mt-2 rounded-xl overflow-hidden bg-dark-900/60 border border-dark-600/50 saved-no-nav" onClick={e => e.stopPropagation()}>
+          <div className="mt-2 space-y-2">
             {m.type === 'image' && m.media_url && (
-              <img src={m.media_url} alt="" className="w-full max-h-52 object-cover bg-black/40" />
-            )}
-            {m.type === 'video' && m.media_url && (
-              <video src={m.media_url} controls playsInline className="w-full max-h-52 bg-black/60" preload="metadata" />
-            )}
-            {m.type === 'audio' && m.media_url && (
-              <div className="p-3 bg-dark-800">
-                <audio src={m.media_url} controls className="w-full max-h-10" preload="metadata" />
+              <div className="rounded-xl overflow-hidden ring-1 ring-white/[0.08] bg-black/40">
+                <img src={m.media_url} alt="" className="w-full max-h-52 object-cover bg-black/40" />
               </div>
             )}
+            {m.type === 'video' && m.media_url && <ChatVideo src={m.media_url} videoClassName="max-h-52 w-full object-contain" />}
+            {m.type === 'audio' && m.media_url && <ChatAudio src={m.media_url} compact />}
           </div>
           {m.content ? (
             <p className="text-xs text-slate-400 mt-2 line-clamp-4 whitespace-pre-wrap">{m.content}</p>
@@ -99,7 +72,7 @@ export default function Sidebar({
   onListModeChange,
 }: Props) {
   const { user } = useAuth();
-  const { conversations, active, setActive, stories, jumpToMessage } = useChat();
+  const { conversations, active, setActive, stories } = useChat();
   const [tab, setTab] = useState<Tab>('direct');
   const [showSearch, setShowSearch] = useState(false);
   const [showCreate, setShowCreate] = useState<'group' | 'channel' | null>(null);
@@ -120,12 +93,6 @@ export default function Sidebar({
       .catch(() => setSavedItems([]))
       .finally(() => setSavedLoading(false));
   }, [listMode]);
-
-  const openSavedChat = (item: SavedListItem) => {
-    jumpToMessage(item.conversation, item.message.id);
-    onSelect();
-    onListModeChange?.('chats');
-  };
 
   const tabBtn = (t: Tab, icon: React.ReactNode, label: string) => (
     <button onClick={() => setTab(t)} className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition ${tab === t ? 'text-accent border-b-2 border-accent' : 'text-slate-400 hover:text-white border-b-2 border-transparent'}`}>
@@ -157,14 +124,7 @@ export default function Sidebar({
               <p className="text-xs mt-2 text-slate-600 max-w-[240px]">Выберите сообщение в чате и нажмите «В избранное» в панели действий.</p>
             </div>
           ) : (
-            savedItems.map(item => (
-              <SavedFavoriteRow
-                key={item.save_id}
-                item={item}
-                fmtTime={fmtTime}
-                onJumpToChat={() => openSavedChat(item)}
-              />
-            ))
+            savedItems.map(item => <SavedFavoriteRow key={item.save_id} item={item} fmtTime={fmtTime} />)
           )}
         </div>
       </div>
@@ -194,7 +154,7 @@ export default function Sidebar({
           </div>
           <div className="flex-1 min-w-0">
             <span className="text-sm font-semibold text-white">Избранное</span>
-            <p className="text-xs text-slate-500 mt-0.5">Сохранённые сообщения</p>
+            <p className="text-xs text-slate-500 mt-0.5">Все сохранёнки в одной ленте</p>
           </div>
         </button>
       )}

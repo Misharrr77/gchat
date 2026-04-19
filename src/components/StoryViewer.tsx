@@ -53,7 +53,16 @@ export default function StoryViewer({ group, onClose }: { group: StoryGroup; onC
         </div>
         <div className="flex-1 flex items-center justify-center overflow-hidden relative">
           {story.type === 'image' && story.media_url && <img src={story.media_url} className="max-w-full max-h-full object-contain" />}
-          {story.type === 'video' && story.media_url && <video src={story.media_url} autoPlay muted className="max-w-full max-h-full object-contain" />}
+          {story.type === 'video' && story.media_url && (
+            <video
+              src={story.media_url}
+              autoPlay
+              muted
+              playsInline
+              preload="metadata"
+              className="max-w-full max-h-full object-contain rounded-lg ring-1 ring-white/15 shadow-2xl"
+            />
+          )}
           {story.type === 'text' && (
             <div className="w-full h-full flex items-center justify-center p-8" style={{ backgroundColor: story.bg_color }}>
               <p className="text-xl font-bold text-white text-center">{story.text_content}</p>
