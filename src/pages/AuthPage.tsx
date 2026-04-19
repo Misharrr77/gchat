@@ -173,7 +173,7 @@ export default function AuthPage() {
                       </label>
                     </div>
                     <div>
-                      <p className="text-xs text-slate-400 mb-2">3. Вычеркни лишнее (нажми по слову — появится зачёркивание):</p>
+                      <p className="text-xs text-slate-400 mb-2">3. Вычеркни лишнее.</p>
                       <div className="flex flex-wrap items-baseline justify-center gap-y-2 text-sm text-slate-200 leading-relaxed px-0.5">
                         {q3Words.map((w, i) => (
                           <span key={w.key} className="inline-flex items-baseline">
@@ -198,7 +198,6 @@ export default function AuthPage() {
                           </span>
                         ))}
                       </div>
-                      <p className="text-[10px] text-slate-500 mt-2 text-center">Слова через запятую — касание переключает зачёркивание.</p>
                     </div>
                   </>
                 )}
