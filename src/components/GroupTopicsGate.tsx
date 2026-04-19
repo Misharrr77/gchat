@@ -26,7 +26,7 @@ export default function GroupTopicsGate() {
     <div className="absolute inset-0 z-[50] flex flex-col bg-dark-900 border-t border-dark-700/80">
       <div className="px-4 py-3 border-b border-dark-600 flex-shrink-0">
         <h2 className="text-base font-bold text-white">Темы</h2>
-        <p className="text-xs text-slate-500 mt-1">Выберите тему, чтобы открыть переписку</p>
+        <p className="text-xs text-slate-500 mt-1">Выбери тему, чтобы открыть переписку</p>
       </div>
       <div className="flex-1 overflow-y-auto min-h-0">
         {loading ? (
@@ -34,7 +34,7 @@ export default function GroupTopicsGate() {
             <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
           </div>
         ) : topics.length === 0 ? (
-          <p className="text-center text-slate-500 text-sm py-12 px-4">Тем пока нет. Админ может включить темы в профиле группы.</p>
+          <p className="text-center text-slate-500 text-sm py-12 px-4">Тем пока нет. Попроси админа включить темы в профиле группы.</p>
         ) : (
           topics.map(t => (
             <button

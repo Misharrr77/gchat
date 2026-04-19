@@ -287,7 +287,7 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
             type="button"
             onClick={() => setSelectedId(null)}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-dark-700 transition"
-            title="Снять выделение"
+            title="Сними выделение"
           >
             <X size={18} />
           </button>

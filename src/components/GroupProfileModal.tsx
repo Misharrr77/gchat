@@ -182,7 +182,7 @@ export default function GroupProfileModal({
                     <div>
                       <p className="text-sm font-medium text-white">Темы в группе</p>
                       <p className="text-xs text-slate-500 mt-1">
-                        При включении весь текущий чат попадает в тему «Основной чат». Участники сначала выбирают тему.
+                        При включении весь текущий чат попадает в тему «Основной чат». Перед общением выбери тему.
                       </p>
                     </div>
                   </label>
@@ -300,7 +300,7 @@ export default function GroupProfileModal({
                   </div>
                 </>
               ) : (
-                <p className="text-xs text-slate-500 mb-4">Список подписчиков в профиле канала не отображается.</p>
+                <p className="text-xs text-slate-500 mb-4">Списка подписчиков здесь нет.</p>
               )}
               <button onClick={leaveGroup} className="mt-5 w-full py-2.5 border border-red-500/30 text-red-400 text-sm rounded-xl hover:bg-red-500/10 transition flex items-center justify-center gap-2">
                 <LogOut size={15} />Покинуть

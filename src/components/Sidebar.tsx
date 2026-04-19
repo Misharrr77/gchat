@@ -127,7 +127,7 @@ export default function Sidebar({
             <div className="flex flex-col items-center justify-center py-16 px-4 text-slate-500 text-center">
               <Bookmark size={40} className="text-slate-600 mb-2" />
               <p className="text-sm">Пока пусто</p>
-              <p className="text-xs mt-2 text-slate-600 max-w-[240px]">Выберите сообщение в чате и нажмите «В избранное» в панели действий.</p>
+              <p className="text-xs mt-2 text-slate-600 max-w-[240px]">Выбери сообщение в чате и нажми «В избранное» в панели действий.</p>
             </div>
           ) : (
             savedItems.map(item => <SavedFavoriteRow key={item.save_id} item={item} />)

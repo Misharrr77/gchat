@@ -48,7 +48,7 @@ export default function ChatPage() {
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center text-slate-500">
                   <h2 className="text-3xl font-bold text-white/10 mb-2">gchat</h2>
-                  <p className="text-sm">Выберите чат</p>
+                  <p className="text-sm">Выбери чат</p>
                 </div>
               )}
             </div>

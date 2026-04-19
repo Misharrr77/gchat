@@ -62,7 +62,7 @@ function auth(req, res, next) {
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { username, password, displayName } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Введите логин и пароль' });
+    if (!username || !password) return res.status(400).json({ error: 'Введи логин и пароль' });
     if (username.length < 3) return res.status(400).json({ error: 'Минимум 3 символа' });
     if (password.length < 6) return res.status(400).json({ error: 'Пароль минимум 6 символов' });
     if (!/^[a-zA-Z0-9_]+$/.test(username)) return res.status(400).json({ error: 'Только латиница, цифры и _' });
@@ -85,7 +85,7 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { login, password } = req.body;
-    if (!login || !password) return res.status(400).json({ error: 'Введите данные' });
+    if (!login || !password) return res.status(400).json({ error: 'Введи данные' });
     const user = db.prepare('SELECT * FROM users WHERE username = ?').get(login.toLowerCase());
     if (!user) return res.status(401).json({ error: 'Неверные данные' });
     const valid = await bcrypt.compare(password, user.password_hash);
@@ -309,7 +309,7 @@ app.post('/api/conversations/:id/topics', auth, (req, res) => {
   const role = db.prepare('SELECT role FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(cid, req.user.id);
   if (!role || role.role !== 'admin') return res.status(403).json({ error: 'Только админ' });
   const name = String(req.body?.name || '').trim().slice(0, 120);
-  if (!name) return res.status(400).json({ error: 'Укажите название темы' });
+  if (!name) return res.status(400).json({ error: 'Укажи название темы' });
   const mo = db.prepare('SELECT COALESCE(MAX(sort_order), -1) as m FROM group_topics WHERE conversation_id = ?').get(cid).m;
   const id = uuidv4();
   db.prepare('INSERT INTO group_topics (id, conversation_id, name, sort_order) VALUES (?, ?, ?, ?)').run(id, cid, name, mo + 1);
@@ -539,7 +539,7 @@ function resolveTopicFilter(conversationId, topicIdQuery, anchorMsgId) {
     const row = db.prepare('SELECT topic_id FROM messages WHERE id = ? AND conversation_id = ?').get(anchorMsgId, conversationId);
     if (row?.topic_id) tid = row.topic_id;
   }
-  if (!tid) return { err: 'Укажите тему (topicId) или откройте из закрепа внутри темы' };
+  if (!tid) return { err: 'Укажи тему (topicId) или открой из закрепа внутри темы' };
   const ok = db.prepare('SELECT 1 FROM group_topics WHERE id = ? AND conversation_id = ?').get(tid, conversationId);
   if (!ok) return { err: 'Тема не найдена' };
   return { clause: ' AND m.topic_id = ?', params: [tid] };
@@ -634,7 +634,7 @@ app.post('/api/messages', auth, (req, res) => {
         const first = db.prepare('SELECT id FROM group_topics WHERE conversation_id = ? ORDER BY sort_order ASC, created_at ASC LIMIT 1').get(conversationId);
         topicId = first?.id || null;
       }
-      if (!topicId) return res.status(400).json({ error: 'Сначала включите темы и создайте хотя бы одну' });
+      if (!topicId) return res.status(400).json({ error: 'Сначала включи темы и создай хотя бы одну' });
       const okTop = db.prepare('SELECT 1 FROM group_topics WHERE id = ? AND conversation_id = ?').get(topicId, conversationId);
       if (!okTop) return res.status(400).json({ error: 'Неверная тема' });
     } else {
@@ -840,7 +840,7 @@ app.get('/api/music/:userId', auth, (req, res) => {
 
 app.post('/api/music', auth, (req, res) => {
   const { title, artist, url } = req.body;
-  if (!title || !url) return res.status(400).json({ error: 'Нужны название и файл' });
+  if (!title || !url) return res.status(400).json({ error: 'Укажи название и файл' });
   const id = uuidv4();
   db.prepare('INSERT INTO profile_music (id, user_id, title, artist, url) VALUES (?, ?, ?, ?, ?)').run(id, req.user.id, title, artist || '', url);
   res.json({ track: db.prepare('SELECT * FROM profile_music WHERE id = ?').get(id) });

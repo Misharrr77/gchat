@@ -21,7 +21,7 @@ export default function AuthPage() {
       if (isLogin) {
         await login(username, password);
       } else {
-        if (!username || !password) throw new Error('Заполните все поля');
+        if (!username || !password) throw new Error('Заполни все поля');
         await register(username, password, displayName || undefined);
       }
     } catch (err: any) {
@@ -60,7 +60,7 @@ export default function AuthPage() {
               <input
                 type="text" value={username} onChange={e => setUsername(e.target.value)}
                 className="w-full px-4 py-3 bg-dark-700 border border-dark-600 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition"
-                placeholder={isLogin ? 'Введите логин' : 'Придумайте логин (латиница)'} required
+                placeholder={isLogin ? 'Введи логин' : 'Придумай логин (латиница)'} required
               />
             </div>
 
@@ -70,7 +70,7 @@ export default function AuthPage() {
                 <input
                   type="text" value={displayName} onChange={e => setDisplayName(e.target.value)}
                   className="w-full px-4 py-3 bg-dark-700 border border-dark-600 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition"
-                  placeholder="Как вас называть?"
+                  placeholder="Как тебя называть?"
                 />
               </div>
             )}
