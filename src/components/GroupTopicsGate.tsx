@@ -1,14 +1,20 @@
 import { useEffect, useState } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { useChat } from '../contexts/ChatContext';
 import { api } from '../lib/api';
-import { Hash, ChevronRight } from 'lucide-react';
+import { topicPreviewSubtitle } from '../lib/topicPreviewSubtitle';
+import { formatKaliningradListTime } from '../lib/datetime';
+import { Hash, ChevronRight, Pin } from 'lucide-react';
 import type { GroupTopic } from '../types';
 
 /** Экран выбора темы при входе в группу с включёнными темами */
 export default function GroupTopicsGate() {
-  const { active, activeTopicId, selectGroupTopic } = useChat();
+  const { user } = useAuth();
+  const { active, activeTopicId, selectGroupTopic, conversations } = useChat();
   const [topics, setTopics] = useState<GroupTopic[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const convMeta = conversations.find(c => c.id === active?.id);
 
   useEffect(() => {
     if (!active?.id || active.type !== 'group' || !active.topics_enabled) return;
@@ -18,7 +24,7 @@ export default function GroupTopicsGate() {
       .then(d => setTopics(d.topics || []))
       .catch(() => setTopics([]))
       .finally(() => setLoading(false));
-  }, [active?.id, active?.topics_enabled]);
+  }, [active?.id, active?.topics_enabled, convMeta?.last_message_at]);
 
   if (!active || active.type !== 'group' || !active.topics_enabled || activeTopicId) return null;
 
@@ -41,15 +47,26 @@ export default function GroupTopicsGate() {
               key={t.id}
               type="button"
               onClick={() => selectGroupTopic(t.id)}
-              className="w-full flex items-center gap-3 px-4 py-3.5 text-left border-b border-dark-700/60 hover:bg-dark-800/80 transition"
+              className="sidebar-chat-row w-full flex items-start gap-3 px-4 py-3.5 text-left border-b border-dark-700/60 hover:bg-dark-800/80 transition"
             >
-              <div className="w-11 h-11 rounded-full bg-accent/15 flex items-center justify-center flex-shrink-0 ring-1 ring-accent/25">
+              <div className="relative w-11 h-11 rounded-full bg-accent/15 flex items-center justify-center flex-shrink-0 ring-1 ring-accent/25 mt-0.5">
                 <Hash size={20} className="text-accent-light" />
+                {(t.pinned ?? 0) > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-5 h-5 rounded-full bg-dark-800 border border-amber-500/80 flex items-center justify-center">
+                    <Pin size={10} className="text-amber-400 fill-amber-400" />
+                  </span>
+                )}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-white truncate">{t.name}</p>
+              <div className="flex-1 min-w-0 pt-0.5">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-white truncate">{t.name}</p>
+                  <span className="text-[10px] text-slate-500 whitespace-nowrap flex-shrink-0">
+                    {formatKaliningradListTime(t.last_message_at)}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 truncate mt-0.5">{topicPreviewSubtitle(t, active.members, user?.id)}</p>
               </div>
-              <ChevronRight size={18} className="text-slate-500 flex-shrink-0" />
+              <ChevronRight size={18} className="text-slate-500 flex-shrink-0 mt-3" />
             </button>
           ))
         )}

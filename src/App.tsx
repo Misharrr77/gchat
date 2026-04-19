@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ChatProvider } from './contexts/ChatContext';
+import { SettingsProvider } from './contexts/SettingsContext';
 import AuthPage from './pages/AuthPage';
 import ChatPage from './pages/ChatPage';
 
@@ -25,14 +26,16 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Routes>
-          <Route path="/auth" element={<Public><AuthPage /></Public>} />
-          <Route path="/*" element={
-            <Protected>
-              <ChatProvider><ChatPage /></ChatProvider>
-            </Protected>
-          } />
-        </Routes>
+        <SettingsProvider>
+          <Routes>
+            <Route path="/auth" element={<Public><AuthPage /></Public>} />
+            <Route path="/*" element={
+              <Protected>
+                <ChatProvider><ChatPage /></ChatProvider>
+              </Protected>
+            } />
+          </Routes>
+        </SettingsProvider>
       </AuthProvider>
     </BrowserRouter>
   );

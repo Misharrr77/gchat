@@ -259,6 +259,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
       if (msg.sender_id !== userIdRef.current) {
         playNotificationSound();
+        try {
+          const raw = localStorage.getItem('gchat_settings_v1');
+          if (raw) {
+            const s = JSON.parse(raw) as { vibrateOnNotify?: boolean };
+            if (s.vibrateOnNotify && typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(42);
+          }
+        } catch {}
       }
     });
 

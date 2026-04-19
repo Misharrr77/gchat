@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useChat } from '../contexts/ChatContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { api } from '../lib/api';
 import Sidebar from '../components/Sidebar';
@@ -8,13 +9,15 @@ import ChatView from '../components/ChatView';
 import ProfileModal from '../components/ProfileModal';
 import SearchModal from '../components/SearchModal';
 import CreateGroupModal from '../components/CreateGroupModal';
+import SettingsModal from '../components/SettingsModal';
 import Avatar from '../components/Avatar';
-import { LogOut, UserPlus, Users, Radio, Compass, X, Search, Bookmark } from 'lucide-react';
+import { LogOut, UserPlus, Users, Radio, Compass, X, Search, Bookmark, Settings } from 'lucide-react';
 import { User, Conversation } from '../types';
 
 export default function ChatPage() {
   const { user, logout } = useAuth();
   const { active, setActive, refresh } = useChat();
+  const { settings } = useSettings();
   const isDesktop = useMediaQuery('(min-width: 768px)');
   const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
   const [profileUser, setProfileUser] = useState<User | null>(null);
@@ -23,6 +26,12 @@ export default function ChatPage() {
   const [drawerCreate, setDrawerCreate] = useState<'group' | 'channel' | null>(null);
   const [drawerDiscover, setDrawerDiscover] = useState(false);
   const [listMode, setListMode] = useState<'chats' | 'favorites'>('chats');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const sidebarWidthClass =
+    settings.sidebarWidth === 'wide'
+      ? 'w-[min(460px,100vw)] lg:w-[460px]'
+      : 'w-[340px] lg:w-[400px]';
 
   const openChat = () => setMobileView('chat');
   const backToList = () => setMobileView('list');
@@ -32,11 +41,12 @@ export default function ChatPage() {
       <div className="flex h-[100dvh] bg-dark-900 overflow-hidden">
         {isDesktop ? (
           <>
-            <div className="w-[340px] lg:w-[400px] flex-shrink-0 border-r border-dark-600">
+            <div className={`${sidebarWidthClass} flex-shrink-0 border-r border-dark-600`}>
               <Sidebar
                 onSelect={openChat}
                 onProfile={setProfileUser}
                 onDrawer={() => setDrawer(true)}
+                onOpenSettings={() => setSettingsOpen(true)}
                 isMobile={false}
                 listMode={listMode}
                 onListModeChange={setListMode}
@@ -60,6 +70,7 @@ export default function ChatPage() {
                 onSelect={openChat}
                 onProfile={setProfileUser}
                 onDrawer={() => setDrawer(true)}
+                onOpenSettings={() => setSettingsOpen(true)}
                 isMobile={true}
                 listMode={listMode}
                 onListModeChange={m => {
@@ -92,6 +103,7 @@ export default function ChatPage() {
               <DrawerBtn icon={<Radio size={18} />} label="Создать канал" onClick={() => { setDrawer(false); setDrawerCreate('channel'); }} />
               <DrawerBtn icon={<Compass size={18} />} label="Найти" onClick={() => { setDrawer(false); setDrawerDiscover(true); }} />
               <DrawerBtn icon={<Bookmark size={18} />} label="Избранное" onClick={() => { setDrawer(false); setListMode('favorites'); setMobileView('list'); }} />
+              <DrawerBtn icon={<Settings size={18} />} label="Настройки" onClick={() => { setDrawer(false); setSettingsOpen(true); }} />
             </div>
             <div className="border-t border-dark-600 p-2">
               <button onClick={() => { setDrawer(false); logout(); }} className="w-full flex items-center gap-3 px-5 py-3 text-red-400 hover:bg-dark-700 rounded-xl transition text-sm"><LogOut size={18} />Выйти</button>
@@ -104,6 +116,7 @@ export default function ChatPage() {
       {drawerCreate && <CreateGroupModal type={drawerCreate} onClose={() => setDrawerCreate(null)} />}
       {drawerDiscover && <DiscoverModal onClose={() => setDrawerDiscover(false)} onJoin={(c) => { setActive(c); openChat(); setDrawerDiscover(false); }} />}
       {profileUser && <ProfileModal userId={profileUser.id} onClose={() => setProfileUser(null)} />}
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </>
   );
 }

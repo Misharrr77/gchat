@@ -151,6 +151,31 @@ app.post('/api/upload', auth, upload.single('file'), (req, res) => {
 
 // ── Conversations ──
 
+function enrichTopicRow(raw) {
+  const row = { ...raw };
+  if (row.last_message_at != null && row.last_message_at !== '') {
+    row.last_message = lastMessagePreviewLine(row.last_message, row.last_message_type);
+  }
+  return row;
+}
+
+/** Список тем группы с превью последнего сообщения (Калининградское «сегодня» через created_at сообщения) */
+function fetchTopicsEnriched(cid) {
+  const rows = db.prepare(`
+    SELECT gt.id, gt.conversation_id, gt.name, gt.sort_order,
+      COALESCE(gt.pinned, 0) as pinned,
+      gt.created_at,
+      (SELECT m.content FROM messages m WHERE m.conversation_id = gt.conversation_id AND m.topic_id = gt.id ORDER BY m.created_at DESC LIMIT 1) as last_message,
+      (SELECT m.type FROM messages m WHERE m.conversation_id = gt.conversation_id AND m.topic_id = gt.id ORDER BY m.created_at DESC LIMIT 1) as last_message_type,
+      (SELECT m.created_at FROM messages m WHERE m.conversation_id = gt.conversation_id AND m.topic_id = gt.id ORDER BY m.created_at DESC LIMIT 1) as last_message_at,
+      (SELECT m.sender_id FROM messages m WHERE m.conversation_id = gt.conversation_id AND m.topic_id = gt.id ORDER BY m.created_at DESC LIMIT 1) as last_message_sender_id
+    FROM group_topics gt
+    WHERE gt.conversation_id = ?
+    ORDER BY COALESCE(gt.pinned, 0) DESC, gt.sort_order ASC, gt.created_at ASC
+  `).all(cid);
+  return rows.map(enrichTopicRow);
+}
+
 function enrichConversation(conv, userId) {
   const members = db.prepare(
     `SELECT u.id, u.username, u.display_name, u.avatar, u.video_avatar, u.is_online, u.last_seen, cm.role
@@ -283,7 +308,7 @@ app.put('/api/conversations/:id', auth, (req, res) => {
       const n = db.prepare('SELECT COUNT(*) as c FROM group_topics WHERE conversation_id = ?').get(conv.id).c;
       if (n === 0) {
         const tid = uuidv4();
-        db.prepare('INSERT INTO group_topics (id, conversation_id, name, sort_order) VALUES (?, ?, ?, 0)').run(tid, conv.id, 'Основной чат');
+        db.prepare('INSERT INTO group_topics (id, conversation_id, name, sort_order, pinned) VALUES (?, ?, ?, 0, 0)').run(tid, conv.id, 'Основной чат');
         db.prepare('UPDATE messages SET topic_id = ? WHERE conversation_id = ? AND topic_id IS NULL').run(tid, conv.id);
       }
     }
@@ -299,7 +324,7 @@ app.get('/api/conversations/:id/topics', auth, (req, res) => {
   const member = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(cid, req.user.id);
   if (!member) return res.status(403).json({ error: 'Нет доступа' });
   const conv = db.prepare('SELECT topics_enabled FROM conversations WHERE id = ?').get(cid);
-  const topics = db.prepare('SELECT id, conversation_id, name, sort_order, created_at FROM group_topics WHERE conversation_id = ? ORDER BY sort_order ASC, created_at ASC').all(cid);
+  const topics = fetchTopicsEnriched(cid);
   res.json({ topics, topics_enabled: conv?.topics_enabled ?? 0 });
 });
 
@@ -313,8 +338,11 @@ app.post('/api/conversations/:id/topics', auth, (req, res) => {
   if (!name) return res.status(400).json({ error: 'Укажи название темы' });
   const mo = db.prepare('SELECT COALESCE(MAX(sort_order), -1) as m FROM group_topics WHERE conversation_id = ?').get(cid).m;
   const id = uuidv4();
-  db.prepare('INSERT INTO group_topics (id, conversation_id, name, sort_order) VALUES (?, ?, ?, ?)').run(id, cid, name, mo + 1);
-  res.json({ topic: db.prepare('SELECT id, conversation_id, name, sort_order, created_at FROM group_topics WHERE id = ?').get(id) });
+  db.prepare('INSERT INTO group_topics (id, conversation_id, name, sort_order, pinned) VALUES (?, ?, ?, ?, 0)').run(id, cid, name, mo + 1);
+  const row = db.prepare('SELECT id, conversation_id, name, sort_order, COALESCE(pinned,0) as pinned, created_at FROM group_topics WHERE id = ?').get(id);
+  const topics = fetchTopicsEnriched(cid);
+  const topic = topics.find(t => t.id === id) || enrichTopicRow(row);
+  res.json({ topic });
 });
 
 app.patch('/api/conversations/:id/topics/:topicId', auth, (req, res) => {
@@ -322,11 +350,53 @@ app.patch('/api/conversations/:id/topics/:topicId', auth, (req, res) => {
   const tid = req.params.topicId;
   const role = db.prepare('SELECT role FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(cid, req.user.id);
   if (!role || role.role !== 'admin') return res.status(403).json({ error: 'Только админ' });
-  const name = String(req.body?.name || '').trim().slice(0, 120);
-  if (!name) return res.status(400).json({ error: 'Имя' });
-  const r = db.prepare('UPDATE group_topics SET name = ? WHERE id = ? AND conversation_id = ?').run(name, tid, cid);
+  const bodyName = req.body?.name;
+  const bodyPinned = req.body?.pinned;
+  const sets = [];
+  const vals = [];
+  if (bodyName !== undefined) {
+    const name = String(bodyName || '').trim().slice(0, 120);
+    if (!name) return res.status(400).json({ error: 'Имя' });
+    sets.push('name = ?');
+    vals.push(name);
+  }
+  if (bodyPinned !== undefined) {
+    sets.push('pinned = ?');
+    vals.push(bodyPinned ? 1 : 0);
+  }
+  if (!sets.length) return res.status(400).json({ error: 'Nothing' });
+  vals.push(tid, cid);
+  const r = db.prepare(`UPDATE group_topics SET ${sets.join(', ')} WHERE id = ? AND conversation_id = ?`).run(...vals);
   if (!r.changes) return res.status(404).json({ error: 'Не найдено' });
-  res.json({ topic: db.prepare('SELECT id, conversation_id, name, sort_order, created_at FROM group_topics WHERE id = ?').get(tid) });
+  const topics = fetchTopicsEnriched(cid);
+  const topic = topics.find(t => t.id === tid);
+  res.json({ topic });
+});
+
+app.post('/api/conversations/:id/topics/:topicId/move', auth, (req, res) => {
+  const cid = req.params.id;
+  const tid = req.params.topicId;
+  const role = db.prepare('SELECT role FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(cid, req.user.id);
+  if (!role || role.role !== 'admin') return res.status(403).json({ error: 'Только админ' });
+  const direction = String(req.body?.direction || '');
+  if (direction !== 'up' && direction !== 'down') return res.status(400).json({ error: 'direction' });
+  const topics = db.prepare(`
+    SELECT id, sort_order, COALESCE(pinned, 0) as pinned FROM group_topics
+    WHERE conversation_id = ?
+    ORDER BY pinned DESC, sort_order ASC, created_at ASC
+  `).all(cid);
+  const idx = topics.findIndex(t => t.id === tid);
+  if (idx === -1) return res.status(404).json({ error: 'Не найдено' });
+  const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+  if (swapIdx < 0 || swapIdx >= topics.length) return res.json({ ok: true, topics: fetchTopicsEnriched(cid) });
+  const a = topics[idx];
+  const b = topics[swapIdx];
+  if (a.pinned !== b.pinned) return res.json({ ok: true, topics: fetchTopicsEnriched(cid) });
+  const sa = a.sort_order;
+  const sb = b.sort_order;
+  db.prepare('UPDATE group_topics SET sort_order = ? WHERE id = ?').run(sb, a.id);
+  db.prepare('UPDATE group_topics SET sort_order = ? WHERE id = ?').run(sa, b.id);
+  res.json({ ok: true, topics: fetchTopicsEnriched(cid) });
 });
 
 app.delete('/api/conversations/:id/topics/:topicId', auth, (req, res) => {

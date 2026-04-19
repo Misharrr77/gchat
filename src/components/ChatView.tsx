@@ -1,4 +1,6 @@
 import { useRef, useEffect, useLayoutEffect, useState, useMemo } from 'react';
+import { useSettings } from '../contexts/SettingsContext';
+import { formatChatDaySeparatorLabel, getKaliningradDateKey } from '../lib/datetime';
 import { useAuth } from '../contexts/AuthContext';
 import { useChat } from '../contexts/ChatContext';
 import MessageBubble from './MessageBubble';
@@ -38,6 +40,7 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
     loadOlderMessages,
     loadingOlder,
   } = useChat();
+  const { settings } = useSettings();
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevFirstMsgIdRef = useRef<string | undefined>(undefined);
@@ -170,6 +173,26 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
     return (m.content || 'Сообщение').trim().slice(0, 80) + ((m.content || '').length > 80 ? '…' : '');
   };
 
+  type ChatRow =
+    | { kind: 'day'; dk: string; label: string }
+    | { kind: 'msg'; msg: Message; prev?: Message };
+
+  const rowsWithDays = useMemo(() => {
+    const out: ChatRow[] = [];
+    let prevDayKey = '';
+    let prevMsg: Message | undefined;
+    for (const msg of messages) {
+      const dk = getKaliningradDateKey(msg.created_at);
+      if (settings.chatDaySeparators && dk !== prevDayKey) {
+        prevDayKey = dk;
+        out.push({ kind: 'day', dk, label: formatChatDaySeparatorLabel(msg.created_at) });
+      }
+      out.push({ kind: 'msg', msg, prev: prevMsg });
+      prevMsg = msg;
+    }
+    return out;
+  }, [messages, settings.chatDaySeparators]);
+
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center gap-2 px-3 py-2.5 bg-dark-800 border-b border-dark-600 flex-shrink-0">
@@ -258,22 +281,30 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
               <p className="text-slate-500 text-sm">{isChannel ? 'Нет публикаций' : 'Нет сообщений'}</p>
             </div>
           ) : (
-            messages.map((msg, i) => (
-              <MessageBubble
-                key={msg.id}
-                message={msg}
-                showAvatar={
-                  !i ||
-                  messages[i - 1].sender_id !== msg.sender_id ||
-                  !!(messages[i - 1].as_channel ?? false) !== !!(msg.as_channel ?? false)
-                }
-                onImageClick={setImgPreview}
-                showSenderNames={isGroup || isChannel}
-                isSelected={selectedId === msg.id}
-                onSelect={() => pickMessage(msg)}
-                onToggleReaction={emoji => toggleReaction(msg.id, emoji)}
-              />
-            ))
+            rowsWithDays.map(row =>
+              row.kind === 'day' ? (
+                <div key={`day-${row.dk}`} className="flex justify-center py-2.5 pointer-events-none select-none">
+                  <span className="inline-flex items-center px-4 py-1 min-h-[28px] rounded-full bg-dark-700/95 border border-dark-600/90 text-[11px] font-semibold tracking-wide text-slate-400 shadow-md max-w-[90%] text-center">
+                    {row.label}
+                  </span>
+                </div>
+              ) : (
+                <MessageBubble
+                  key={row.msg.id}
+                  message={row.msg}
+                  showAvatar={
+                    !row.prev ||
+                    row.prev.sender_id !== row.msg.sender_id ||
+                    !!(row.prev.as_channel ?? false) !== !!(row.msg.as_channel ?? false)
+                  }
+                  onImageClick={setImgPreview}
+                  showSenderNames={isGroup || isChannel}
+                  isSelected={selectedId === row.msg.id}
+                  onSelect={() => pickMessage(row.msg)}
+                  onToggleReaction={emoji => toggleReaction(row.msg.id, emoji)}
+                />
+              )
+            )
           )}
           <div ref={endRef} />
         </div>

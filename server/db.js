@@ -170,6 +170,7 @@ db.exec(`
 
 migrate('messages', 'topic_id', 'TEXT');
 migrate('conversations', 'topics_enabled', 'INTEGER DEFAULT 0');
+migrate('group_topics', 'pinned', 'INTEGER DEFAULT 0');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS group_topics (
@@ -177,6 +178,7 @@ db.exec(`
     conversation_id TEXT NOT NULL,
     name TEXT NOT NULL,
     sort_order INTEGER DEFAULT 0,
+    pinned INTEGER DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
   );

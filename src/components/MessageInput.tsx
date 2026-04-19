@@ -1,5 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useChat } from '../contexts/ChatContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { api } from '../lib/api';
 import { getSocket } from '../lib/socket';
 import { Send, Paperclip, Image, Music, Video, X, Radio, User } from 'lucide-react';
@@ -11,6 +13,7 @@ const HEARTBEAT_MS = 2200;
 
 export default function MessageInput() {
   const { active, sendMessage, replyTo, setReplyTo } = useChat();
+  const { settings } = useSettings();
   const isChannel = active?.type === 'channel';
   const [postFromChannel, setPostFromChannel] = useState(true);
   const [text, setText] = useState('');
@@ -99,6 +102,18 @@ export default function MessageInput() {
       setText('');
     } catch (err) { console.error(err); }
     setSending(false);
+  };
+
+  const onComposerKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (settings.sendOnEnter === 'send') {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        void submit();
+      }
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      void submit();
+    }
   };
 
   return (
@@ -190,13 +205,15 @@ export default function MessageInput() {
         <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={e => handleFile(e, 'image')} />
         <input ref={audioRef} type="file" accept="audio/*" className="hidden" onChange={e => handleFile(e, 'audio')} />
         <input ref={vidRef} type="file" accept="video/*" className="hidden" onChange={e => handleFile(e, 'video')} />
-        <input
+        <textarea
           value={text}
           onChange={e => handleChange(e.target.value)}
           onBlur={() => { stopTyping(); }}
           onFocus={() => { if (text.trim()) startTypingHeartbeat(); }}
+          onKeyDown={onComposerKeyDown}
           placeholder="Сообщение..."
-          className="flex-1 px-4 py-2 bg-dark-700 border border-dark-600 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent transition"
+          rows={2}
+          className="flex-1 px-4 py-2 bg-dark-700 border border-dark-600 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent transition resize-none min-h-[42px] max-h-40 overflow-y-auto"
         />
         <button type="submit" disabled={(!text.trim() && !preview) || sending} className="p-2 bg-accent hover:bg-accent-hover rounded-xl text-white transition disabled:opacity-30 disabled:cursor-not-allowed">
           <Send size={18} />

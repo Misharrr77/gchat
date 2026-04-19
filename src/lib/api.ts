@@ -62,6 +62,17 @@ export const api = {
       req(`/conversations/${convId}/topics`, { method: 'POST', body: JSON.stringify({ name }) }),
     topicRename: (convId: string, topicId: string, name: string) =>
       req(`/conversations/${convId}/topics/${topicId}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+    topicPatch: (convId: string, topicId: string, body: { name?: string; pinned?: boolean }) =>
+      req(`/conversations/${convId}/topics/${topicId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    topicMove: (
+      convId: string,
+      topicId: string,
+      direction: 'up' | 'down'
+    ): Promise<{ ok: boolean; topics: GroupTopic[] }> =>
+      req(`/conversations/${convId}/topics/${topicId}/move`, {
+        method: 'POST',
+        body: JSON.stringify({ direction }),
+      }),
     topicDelete: (convId: string, topicId: string) =>
       req(`/conversations/${convId}/topics/${topicId}`, { method: 'DELETE' }),
   },

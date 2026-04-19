@@ -42,7 +42,12 @@ export interface GroupTopic {
   conversation_id: string;
   name: string;
   sort_order: number;
+  pinned?: number;
   created_at: string;
+  last_message?: string | null;
+  last_message_type?: string | null;
+  last_message_at?: string | null;
+  last_message_sender_id?: string | null;
 }
 
 export interface MessageReaction {

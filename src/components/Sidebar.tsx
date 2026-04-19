@@ -6,7 +6,7 @@ import Avatar from './Avatar';
 import StoriesBar from './StoriesBar';
 import SearchModal from './SearchModal';
 import CreateGroupModal from './CreateGroupModal';
-import { Menu, MessageSquare, Users, Radio, Plus, Search, Compass, ChevronLeft, Bookmark } from 'lucide-react';
+import { Menu, MessageSquare, Users, Radio, Plus, Search, Compass, ChevronLeft, Bookmark, Settings } from 'lucide-react';
 import ChatVideo from './media/ChatVideo';
 import ChatAudio from './media/ChatAudio';
 import { Conversation, User, SavedListItem } from '../types';
@@ -25,7 +25,7 @@ function chatListSubtitle(c: Conversation, myId?: string) {
   if (channelAsOfficial && (c.name || '').trim()) {
     return `${c.name}: ${display}`;
   }
-  if (myId && c.last_message_sender_id === myId) return `Вы: ${display}`;
+  if (myId && c.last_message_sender_id === myId) return `Ты: ${display}`;
   if (c.type !== 'direct' && c.last_message_sender_id) {
     const sender = c.members?.find(x => x.id === c.last_message_sender_id);
     if (sender) return `${sender.display_name || sender.username}: ${display}`;
@@ -37,6 +37,7 @@ interface Props {
   onSelect: (c?: Conversation) => void;
   onProfile: (u: User) => void;
   onDrawer: () => void;
+  onOpenSettings?: () => void;
   isMobile: boolean;
   listMode?: 'chats' | 'favorites';
   onListModeChange?: (mode: 'chats' | 'favorites') => void;
@@ -78,6 +79,7 @@ export default function Sidebar({
   onSelect,
   onProfile,
   onDrawer,
+  onOpenSettings,
   isMobile,
   listMode = 'chats',
   onListModeChange,
@@ -150,6 +152,17 @@ export default function Sidebar({
           <Menu size={20} />
         </button>
         <h1 className="text-lg font-bold text-white flex-1">gchat</h1>
+        {onOpenSettings && (
+          <button
+            type="button"
+            onClick={() => onOpenSettings()}
+            className="p-2 hover:bg-dark-700 rounded-xl text-slate-400 hover:text-white transition"
+            title="Настройки"
+            aria-label="Настройки"
+          >
+            <Settings size={18} />
+          </button>
+        )}
         <button onClick={() => setShowDiscover(true)} className="p-2 hover:bg-dark-700 rounded-xl text-slate-400 hover:text-white transition"><Compass size={18} /></button>
         <button onClick={() => tab === 'direct' ? setShowSearch(true) : setShowCreate(tab === 'channel' ? 'channel' : 'group')} className="p-2 hover:bg-dark-700 rounded-xl text-slate-400 hover:text-white transition"><Plus size={18} /></button>
       </div>
@@ -190,7 +203,7 @@ export default function Sidebar({
             </button>
           </div>
         ) : filtered.map(c => (
-          <button key={c.id} onClick={() => handleSelect(c)} className={`w-full flex items-center gap-3 px-4 py-3 text-left transition active:bg-dark-600 ${active?.id === c.id ? 'bg-dark-700' : 'hover:bg-dark-700/50'}`}>
+          <button key={c.id} onClick={() => handleSelect(c)} className={`sidebar-chat-row w-full flex items-center gap-3 px-4 py-3 text-left transition active:bg-dark-600 ${active?.id === c.id ? 'bg-dark-700' : 'hover:bg-dark-700/50'}`}>
             <Avatar src={c.avatar} videoSrc={c.type === 'direct' ? c.otherUser?.video_avatar : undefined} name={c.name || '?'} size={48} online={c.type === 'direct' ? c.otherUser?.is_online === 1 : undefined} />
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between gap-2">

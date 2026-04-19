@@ -3,8 +3,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { useChat } from '../contexts/ChatContext';
 import { api } from '../lib/api';
 import Avatar from './Avatar';
-import { X, Edit3, Camera, Users, Radio, Shield, UserMinus, UserPlus, LogOut, Search, Crown, Hash, Trash2 } from 'lucide-react';
+import { X, Edit3, Camera, Users, Radio, Shield, UserMinus, UserPlus, LogOut, Search, Crown, Hash, Trash2, ChevronUp, ChevronDown, Pin } from 'lucide-react';
 import { Conversation, GroupTopic, User } from '../types';
+import { topicPreviewSubtitle } from '../lib/topicPreviewSubtitle';
+import { formatKaliningradListTime } from '../lib/datetime';
 
 export default function GroupProfileModal({
   conversation: conv,
@@ -127,6 +129,25 @@ export default function GroupProfileModal({
     } catch {}
   };
 
+  const moveTopic = async (topicId: string, direction: 'up' | 'down') => {
+    if (!isAdmin || conv.type !== 'group') return;
+    try {
+      const d = await api.conversations.topicMove(conv.id, topicId, direction);
+      setTopics(d.topics || []);
+      await refresh();
+    } catch {}
+  };
+
+  const togglePinTopic = async (topicId: string, nextPinned: boolean) => {
+    if (!isAdmin || conv.type !== 'group') return;
+    try {
+      await api.conversations.topicPatch(conv.id, topicId, { pinned: nextPinned });
+      const d = await api.conversations.topics(conv.id);
+      setTopics(d.topics || []);
+      await refresh();
+    } catch {}
+  };
+
   const isChannel = conv.type === 'channel';
 
   return (
@@ -190,48 +211,91 @@ export default function GroupProfileModal({
                     <div className="mt-4 space-y-2 border-t border-dark-600 pt-3">
                       <p className="text-xs text-slate-400 uppercase tracking-wide">Темы</p>
                       {topics.map(t => (
-                        <div key={t.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-dark-800/80">
-                          <Hash size={14} className="text-accent flex-shrink-0" />
-                          {renameTopicId === t.id ? (
-                            <div className="flex-1 flex gap-1 min-w-0">
-                              <input
-                                value={renameDraft}
-                                onChange={e => setRenameDraft(e.target.value)}
-                                className="flex-1 min-w-0 px-2 py-1 bg-dark-700 border border-dark-600 rounded-lg text-sm text-white focus:outline-none focus:border-accent"
-                                autoFocus
-                                onKeyDown={e => {
-                                  if (e.key === 'Enter') saveRenameTopic();
-                                  if (e.key === 'Escape') setRenameTopicId(null);
-                                }}
-                              />
-                              <button type="button" onClick={saveRenameTopic} className="px-2 py-1 text-xs bg-accent text-white rounded-lg">
-                                ОК
-                              </button>
-                              <button type="button" onClick={() => setRenameTopicId(null)} className="px-2 py-1 text-xs text-slate-400">
-                                ✕
-                              </button>
-                            </div>
-                          ) : (
-                            <>
-                              <span className="text-sm text-white flex-1 truncate">{t.name}</span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setRenameTopicId(t.id);
-                                  setRenameDraft(t.name);
-                                }}
-                                className="p-1.5 text-slate-500 hover:text-accent"
-                                aria-label="Переименовать тему"
-                              >
-                                <Edit3 size={14} />
-                              </button>
-                              {topics.length > 1 && (
-                                <button type="button" onClick={() => deleteTopic(t.id)} className="p-1.5 text-slate-500 hover:text-red-400" aria-label="Удалить тему">
-                                  <Trash2 size={14} />
+                        <div key={t.id} className="rounded-lg bg-dark-800/80 border border-dark-600/50 overflow-hidden">
+                          <div className="flex items-start gap-2 py-2 px-2">
+                            <Hash size={14} className="text-accent flex-shrink-0 mt-1" />
+                            {renameTopicId === t.id ? (
+                              <div className="flex-1 flex gap-1 min-w-0">
+                                <input
+                                  value={renameDraft}
+                                  onChange={e => setRenameDraft(e.target.value)}
+                                  className="flex-1 min-w-0 px-2 py-1 bg-dark-700 border border-dark-600 rounded-lg text-sm text-white focus:outline-none focus:border-accent"
+                                  autoFocus
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') saveRenameTopic();
+                                    if (e.key === 'Escape') setRenameTopicId(null);
+                                  }}
+                                />
+                                <button type="button" onClick={saveRenameTopic} className="px-2 py-1 text-xs bg-accent text-white rounded-lg">
+                                  ОК
                                 </button>
-                              )}
-                            </>
-                          )}
+                                <button type="button" onClick={() => setRenameTopicId(null)} className="px-2 py-1 text-xs text-slate-400">
+                                  ✕
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-sm text-white font-medium truncate">{t.name}</span>
+                                    {(t.pinned ?? 0) > 0 && <Pin size={12} className="text-amber-400 fill-amber-400 flex-shrink-0" />}
+                                  </div>
+                                  <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                                    {topicPreviewSubtitle(t, conv.members, me?.id)}
+                                    {t.last_message_at ? ` · ${formatKaliningradListTime(t.last_message_at)}` : ''}
+                                  </p>
+                                </div>
+                                {isAdmin && (
+                                  <div className="flex flex-col gap-0.5 flex-shrink-0">
+                                    <div className="flex items-center gap-0.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => moveTopic(t.id, 'up')}
+                                        className="p-1 text-slate-500 hover:text-white rounded-md hover:bg-dark-700"
+                                        title="Выше"
+                                      >
+                                        <ChevronUp size={15} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => moveTopic(t.id, 'down')}
+                                        className="p-1 text-slate-500 hover:text-white rounded-md hover:bg-dark-700"
+                                        title="Ниже"
+                                      >
+                                        <ChevronDown size={15} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => togglePinTopic(t.id, !(t.pinned ?? 0))}
+                                        className={`p-1 rounded-md hover:bg-dark-700 ${(t.pinned ?? 0) ? 'text-amber-400' : 'text-slate-500 hover:text-amber-300'}`}
+                                        title={(t.pinned ?? 0) ? 'Открепить' : 'Закрепить'}
+                                      >
+                                        <Pin size={15} className={(t.pinned ?? 0) ? 'fill-amber-400' : ''} />
+                                      </button>
+                                    </div>
+                                    <div className="flex items-center justify-end gap-0.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setRenameTopicId(t.id);
+                                          setRenameDraft(t.name);
+                                        }}
+                                        className="p-1.5 text-slate-500 hover:text-accent"
+                                        aria-label="Переименовать тему"
+                                      >
+                                        <Edit3 size={14} />
+                                      </button>
+                                      {topics.length > 1 && (
+                                        <button type="button" onClick={() => deleteTopic(t.id)} className="p-1.5 text-slate-500 hover:text-red-400" aria-label="Удалить тему">
+                                          <Trash2 size={14} />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
                         </div>
                       ))}
                       <div className="flex gap-2 mt-2">
