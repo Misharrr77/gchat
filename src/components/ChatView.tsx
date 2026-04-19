@@ -1,5 +1,4 @@
 import { useRef, useEffect, useLayoutEffect, useState, useMemo } from 'react';
-import { useSettings } from '../contexts/SettingsContext';
 import { formatChatDaySeparatorLabel, getKaliningradDateKey } from '../lib/datetime';
 import { useAuth } from '../contexts/AuthContext';
 import { useChat } from '../contexts/ChatContext';
@@ -40,7 +39,6 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
     loadOlderMessages,
     loadingOlder,
   } = useChat();
-  const { settings } = useSettings();
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevFirstMsgIdRef = useRef<string | undefined>(undefined);
@@ -183,7 +181,7 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
     let prevMsg: Message | undefined;
     for (const msg of messages) {
       const dk = getKaliningradDateKey(msg.created_at);
-      if (settings.chatDaySeparators && dk !== prevDayKey) {
+      if (dk !== prevDayKey) {
         prevDayKey = dk;
         out.push({ kind: 'day', dk, label: formatChatDaySeparatorLabel(msg.created_at) });
       }
@@ -191,7 +189,7 @@ export default function ChatView({ onBack, onProfile, isMobile }: Props) {
       prevMsg = msg;
     }
     return out;
-  }, [messages, settings.chatDaySeparators]);
+  }, [messages]);
 
   return (
     <div className="flex flex-col h-full min-h-0">

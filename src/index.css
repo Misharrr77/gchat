@@ -93,6 +93,26 @@ html[data-theme='light'] .placeholder-slate-500::placeholder {
   color: #94a3b8 !important;
 }
 
+html[data-theme='light'] ::-webkit-scrollbar-thumb {
+  background: #94a3b8 !important;
+}
+html[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
+  background: #64748b !important;
+}
+
+html[data-theme='light'] input:-webkit-autofill,
+html[data-theme='light'] input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 30px #f1f5f9 inset !important;
+  -webkit-text-fill-color: #0f172a !important;
+  caret-color: #0f172a;
+}
+
+html[data-theme='light'] textarea:-webkit-autofill,
+html[data-theme='light'] textarea:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 30px #f1f5f9 inset !important;
+  -webkit-text-fill-color: #0f172a !important;
+}
+
 html[data-density='compact'] .sidebar-chat-row {
   padding-top: 0.45rem !important;
   padding-bottom: 0.45rem !important;

@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { connectSocket, disconnectSocket, isSocketConnected } from '../lib/socket';
 import { useAuth } from './AuthContext';
 import { Conversation, Message, PinnedEntry, StoryGroup, User } from '../types';
-import { playNotificationSound } from '../lib/sounds';
+import { notifyNewMessageVibrate, playNotificationSound, warmupNotificationSound } from '../lib/sounds';
 import { lastMessagePreviewLine } from '../lib/lastMessagePreview';
 
 function mergeUserIntoConversations(prev: Conversation[], u: User): Conversation[] {
@@ -67,6 +67,10 @@ export function useChat() {
 }
 
 export function ChatProvider({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    warmupNotificationSound();
+  }, []);
+
   const { user, updateUser } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [active, setActive] = useState<Conversation | null>(null);
@@ -259,13 +263,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
       if (msg.sender_id !== userIdRef.current) {
         playNotificationSound();
-        try {
-          const raw = localStorage.getItem('gchat_settings_v1');
-          if (raw) {
-            const s = JSON.parse(raw) as { vibrateOnNotify?: boolean };
-            if (s.vibrateOnNotify && typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(42);
-          }
-        } catch {}
+        notifyNewMessageVibrate();
       }
     });
 
