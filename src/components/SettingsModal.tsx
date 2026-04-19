@@ -77,7 +77,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                 </button>
               ))}
             </div>
-            <label className={`text-sm mb-1 block ${labelText}`}>Акцент</label>
+            <label className={`text-sm mb-1 block ${labelText}`}>Цвет акцента</label>
             <input
               type="range"
               min={0}
@@ -86,14 +86,16 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
               onChange={e => field('accentHue', +e.target.value)}
               className="w-full accent-accent h-2"
             />
-            <p className={`text-[11px] mt-1 ${hintText}`}>{settings.accentHue}°</p>
+            <p className={`text-[11px] mt-1 ${hintText}`}>
+              Кнопки и выделения. Сейчас {settings.accentHue}°.
+            </p>
           </section>
 
           <section>
             <h3 className={`text-xs font-semibold uppercase tracking-wide mb-3 flex items-center gap-2 ${sectionTitle}`}>
               <Type size={13} /> Интерфейс
             </h3>
-            <label className={`text-sm mb-2 block ${labelText}`}>Масштаб шрифта</label>
+            <label className={`text-sm mb-2 block ${labelText}`}>Размер текста в приложении</label>
             <input
               type="range"
               min={85}
@@ -105,7 +107,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
             />
             <p className={`text-[11px] ${hintText}`}>{Math.round(settings.fontScale * 100)}%</p>
 
-            <p className={`text-sm mt-4 mb-2 ${labelText}`}>Плотность списков</p>
+            <p className={`text-sm mt-4 mb-2 ${labelText}`}>Плотность строк в списках</p>
             <div className="flex flex-wrap gap-2">
               {DENSITY.map(({ v, label }) => (
                 <button
@@ -119,9 +121,10 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
               ))}
             </div>
 
-            <p className={`text-sm mt-4 mb-2 flex items-center gap-2 ${labelText}`}>
-              <PanelLeft size={14} /> Список чатов
+            <p className={`text-sm mt-4 mb-1 flex items-center gap-2 ${labelText}`}>
+              <PanelLeft size={14} /> Ширина списка чатов
             </p>
+            <p className={`text-[11px] mb-2 ${hintText}`}>Только на компьютере, колонка слева.</p>
             <div className="flex gap-2">
               <button
                 type="button"
@@ -146,11 +149,11 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
             </h3>
             <button
               type="button"
-              className={`w-full mb-3 ${chip} ${settings.soundEnabled ? chipOn : chipOff}`}
+              className={`w-full mb-2 ${chip} ${settings.soundEnabled ? chipOn : chipOff}`}
               onClick={() => field('soundEnabled', !settings.soundEnabled)}
             >
               {settings.soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
-              Звук {settings.soundEnabled ? 'вкл' : 'выкл'}
+              Звук при новом сообщении {settings.soundEnabled ? 'вкл' : 'выкл'}
             </button>
             <label className={`text-sm mb-2 block ${!settings.soundEnabled ? 'opacity-45' : ''} ${labelText}`}>Громкость</label>
             <input
@@ -168,20 +171,22 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
               onClick={() => field('vibrateOnNotify', !settings.vibrateOnNotify)}
             >
               <Vibrate size={16} />
-              Вибрация
+              Вибрация при новом сообщении
             </button>
+            <p className={`text-[11px] mt-2 ${hintText}`}>На телефоне. На компьютере обычно не работает.</p>
           </section>
 
           <section>
             <h3 className={`text-xs font-semibold uppercase tracking-wide mb-3 flex items-center gap-2 ${sectionTitle}`}>
               <MessageSquare size={13} /> Чат
             </h3>
-            <p className={`text-sm mb-2 ${labelText}`}>Enter в сообщении</p>
+            <p className={`text-sm mb-1 ${labelText}`}>Клавиша Enter в поле сообщения</p>
+            <p className={`text-[11px] mb-2 ${hintText}`}>Два режима: что сделать по нажатию Enter.</p>
             <div className="flex gap-2">
               {(
                 [
-                  { v: 'send' as SendOnEnterMode, label: 'Отправить' },
-                  { v: 'newline' as SendOnEnterMode, label: 'Новая строка' },
+                  { v: 'send' as SendOnEnterMode, label: 'Отправить сообщение' },
+                  { v: 'newline' as SendOnEnterMode, label: 'Перейти на строку ниже' },
                 ] as const
               ).map(({ v, label }) => (
                 <button
@@ -194,6 +199,10 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                 </button>
               ))}
             </div>
+            <p className={`text-[11px] mt-2 ${hintText}`}>
+              Если отправка по Enter, новую строку можно набрать через Shift+Enter. Если перенос строки по Enter,
+              отправить сообщение можно кнопкой отправки или через Ctrl+Enter.
+            </p>
           </section>
 
           <section>
